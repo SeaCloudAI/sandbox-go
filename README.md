@@ -18,16 +18,45 @@ Recommended entrypoint:
 
 `control` and `build` both talk to the same gateway and only need `apiKey`. Runtime access is derived from sandbox create/detail/connect responses; callers should not hardcode runtime endpoints or tokens.
 
-## Recommended Workflow
+## Environment
 
-Most applications only need the root client:
+Use environment variables for gateway configuration in all examples and quick starts:
 
-1. Initialize `sandbox.NewClient(baseURL, apiKey)`.
-2. Create, list, get, or connect sandboxes through the root client.
-3. Keep working from the bound sandbox object:
-   `Reload()`, `Logs()`, `Pause()`, `Refresh()`, `SetTimeout()`, `Connect()`, `Delete()`.
-4. When the sandbox exposes `EnvdURL`, switch into runtime operations through `sandbox.Runtime()`.
-5. Use `client.Build` only for template/build workflows.
+- `SEACLOUD_BASE_URL`: SeaCloudAI gateway entrypoint
+- `SEACLOUD_API_KEY`: API key used for gateway routing and authentication
+- `SEACLOUD_TEMPLATE_ID`: sandbox template identifier or official template type for your target environment
+
+Set them once in your shell:
+
+```bash
+export SEACLOUD_BASE_URL="https://sandbox-gateway.cloud.seaart.ai"
+export SEACLOUD_API_KEY="..."
+export SEACLOUD_TEMPLATE_ID="tpl-..."
+```
+
+Default production gateway:
+
+```text
+https://sandbox-gateway.cloud.seaart.ai
+```
+
+Use `SEACLOUD_TEMPLATE_ID` for production integrations. It can be either a concrete template ID such as `tpl-...` or a stable official template type such as `base`, `claude`, or `codex` when your environment publishes those official templates.
+
+## Production Readiness
+
+- Initialize exactly one root client per process and reuse it.
+- Treat every quick start as creating billable or quota-bound resources unless it explicitly cleans them up.
+- Prefer explicit template references from configuration over hardcoded example values.
+- In SeaCloudAI environments, prefer official template types such as `base`, `claude`, or `codex` when you want a stable platform-managed entrypoint.
+- Use longer client timeouts for `waitReady` flows and image builds.
+- Derive runtime access from sandbox responses instead of storing runtime endpoints or tokens in config.
+
+## Compatibility
+
+- Go: see `go.mod` for the supported toolchain version used by this SDK.
+- API model: this SDK targets the unified SeaCloudAI sandbox gateway and keeps public template APIs limited to user-facing fields.
+- Stability: operator/admin routes may exist on the gateway, but they are not part of the public SDK workflow described in this README.
+- Retry model: treat create/delete/build operations as remote control-plane actions; add idempotency and retry policy in your application layer according to your workload.
 
 ## Quick Start
 
@@ -49,7 +78,7 @@ import (
 
 func main() {
 	client, err := sandbox.NewClient(
-		"https://sandbox-gateway.cloud.seaart.ai",
+		os.Getenv("SEACLOUD_BASE_URL"),
 		os.Getenv("SEACLOUD_API_KEY"),
 		core.WithTimeout(180*time.Second),
 	)
@@ -60,14 +89,14 @@ func main() {
 	ready := true
 	timeout := int32(1800)
 	createdSandbox, err := client.CreateSandbox(context.Background(), &control.NewSandboxRequest{
-		TemplateID:  "base",
-		WorkspaceID: "go-sdk-demo",
-		WaitReady:   &ready,
-		Timeout:     &timeout,
+		TemplateID: os.Getenv("SEACLOUD_TEMPLATE_ID"),
+		WaitReady:  &ready,
+		Timeout:    &timeout,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer createdSandbox.Delete(context.Background())
 
 	log.Printf("sandbox=%s envd=%v", createdSandbox.SandboxID, createdSandbox.EnvdURL)
 	if createdSandbox.EnvdURL != nil {
@@ -113,7 +142,7 @@ import (
 
 func main() {
 	client, err := sandbox.NewClient(
-		"https://sandbox-gateway.cloud.seaart.ai",
+		os.Getenv("SEACLOUD_BASE_URL"),
 		os.Getenv("SEACLOUD_API_KEY"),
 	)
 	if err != nil {
@@ -121,13 +150,13 @@ func main() {
 	}
 
 	resp, err := client.Build.CreateTemplate(context.Background(), &build.TemplateCreateRequest{
-		Name:       "demo",
-		Visibility: "personal",
-		Image:      "docker.io/library/alpine:3.20",
+		Name:  "demo",
+		Image: "docker.io/library/alpine:3.20",
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer client.Build.DeleteTemplate(context.Background(), resp.TemplateID)
 
 	log.Printf("template=%s build=%s", resp.TemplateID, resp.BuildID)
 }
@@ -151,7 +180,7 @@ import (
 
 func main() {
 	client, err := sandbox.NewClient(
-		"https://sandbox-gateway.cloud.seaart.ai",
+		os.Getenv("SEACLOUD_BASE_URL"),
 		os.Getenv("SEACLOUD_API_KEY"),
 	)
 	if err != nil {
@@ -197,7 +226,7 @@ func main() {
 }
 ```
 
-## Root Client First
+## Recommended Usage
 
 For most integrations, stay on the root client as long as possible:
 
@@ -218,7 +247,6 @@ Low-level domain packages remain available when you want direct stateless calls 
 - system: `Metrics`, `Shutdown`
 - sandboxes: `CreateSandbox`, `ListSandboxes`, `GetSandbox`, `DeleteSandbox`
 - sandbox operations: `GetSandboxLogs`, `PauseSandbox`, `ConnectSandbox`, `SetSandboxTimeout`, `RefreshSandbox`, `SendHeartbeat`
-- admin: `GetPoolStatus`, `StartRollingUpdate`, `GetRollingUpdateStatus`, `CancelRollingUpdate`
 
 Recommended root-client path:
 
@@ -228,6 +256,12 @@ Recommended root-client path:
 
 Low-level direct methods like `DeleteSandbox` and `GetSandboxLogs` remain available on the root client when you want stateless calls.
 
+### Operator APIs
+
+The root client also includes operator-oriented methods such as `GetPoolStatus`, `StartRollingUpdate`, `GetRollingUpdateStatus`, and `CancelRollingUpdate`.
+
+These routes are intended for platform operators, not normal application workloads. Keep them out of business-facing integrations unless you are explicitly building operational tooling.
+
 ### Build Plane Through `client.Build`
 
 `client.Build` exposes:
@@ -236,6 +270,12 @@ Low-level direct methods like `DeleteSandbox` and `GetSandboxLogs` remain availa
 - direct build: `DirectBuild`
 - templates: `CreateTemplate`, `ListTemplates`, `GetTemplateByAlias`, `GetTemplate`, `UpdateTemplate`, `DeleteTemplate`
 - builds: `CreateBuild`, `GetBuildFile`, `RollbackTemplate`, `ListBuilds`, `GetBuild`, `GetBuildStatus`, `GetBuildLogs`
+
+The public template request surface intentionally stays small: `name`, `image` or `dockerfile`, and a few optional runtime settings such as `visibility`, `baseTemplateID`, `envs`, `cpuCount`, `memoryMB`, `diskSizeMB`, `ttlSeconds`, `port`, `startCmd`, `readyCmd`.
+
+`CreateTemplate` and `UpdateTemplate` reject `visibility=official` in the public SDK.
+
+`GetTemplateByAlias` is a stable-ref lookup endpoint. It resolves a template by `templateID` or by an official template `type`; it should not be treated as a personal/team display-name search API.
 
 ### Runtime Helper
 
@@ -255,6 +295,12 @@ The object returned by `createdSandbox.Runtime()` or `client.RuntimeFromSandbox(
 - `Headers`: custom header injection
 
 Streaming APIs return `ProcessStream`, `FilesystemWatchStream`, and `ConnectFrame`.
+
+## Resource Safety
+
+- The quick starts are written for disposable resources and should be adapted before copy-pasting into production jobs.
+- Prefer explicit cleanup with `defer createdSandbox.Delete(...)` and `defer client.Build.DeleteTemplate(...)` when running probes, smoke tests, or CI.
+- For long-lived workloads, move cleanup and timeout policy into your own lifecycle manager instead of relying on sample code defaults.
 
 ## Package Layout
 
@@ -290,8 +336,8 @@ Use production smoke tests only with explicitly provided credentials and disposa
 
 ```bash
 SANDBOX_RUN_INTEGRATION=1 \
-SANDBOX_TEST_BASE_URL=https://sandbox-gateway.cloud.seaart.ai \
-SANDBOX_TEST_API_KEY=... \
+SANDBOX_TEST_BASE_URL="${SEACLOUD_BASE_URL}" \
+SANDBOX_TEST_API_KEY="${SEACLOUD_API_KEY}" \
 SANDBOX_TEST_TEMPLATE_ID=tpl-base-dc11799b9f9f4f9e \
 go test ./tests -run Integration -v
 ```
@@ -302,8 +348,8 @@ go test ./tests -run Integration -v
 
 ```bash
 SANDBOX_RUN_INTEGRATION=1 \
-SANDBOX_TEST_BASE_URL=https://sandbox-gateway.cloud.seaart.ai \
-SANDBOX_TEST_API_KEY=... \
+SANDBOX_TEST_BASE_URL="${SEACLOUD_BASE_URL}" \
+SANDBOX_TEST_API_KEY="${SEACLOUD_API_KEY}" \
 SANDBOX_TEST_TEMPLATE_ID=... \
 go test ./tests -v
 ```

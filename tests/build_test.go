@@ -84,6 +84,9 @@ func TestCreateTemplateUsesGatewayAuthOnly(t *testing.T) {
 		if req.Name != "demo" || req.Visibility != "personal" || req.Image != "docker.io/library/alpine:3.20" {
 			t.Fatalf("request = %#v", req)
 		}
+		if req.BaseTemplateID != "tpl-base-1" {
+			t.Fatalf("baseTemplateID = %q", req.BaseTemplateID)
+		}
 		if req.CPUCount == nil || *req.CPUCount != 2 {
 			t.Fatalf("cpuCount = %#v", req.CPUCount)
 		}
@@ -110,11 +113,12 @@ func TestCreateTemplateUsesGatewayAuthOnly(t *testing.T) {
 	}
 
 	resp, err := service.CreateTemplate(context.Background(), &build.TemplateCreateRequest{
-		Name:       "demo",
-		Visibility: "personal",
-		Image:      "docker.io/library/alpine:3.20",
-		CPUCount:   int32Ptr(2),
-		Envs:       map[string]string{"APP_ENV": "test"},
+		Name:           "demo",
+		Visibility:     "personal",
+		BaseTemplateID: "tpl-base-1",
+		Image:          "docker.io/library/alpine:3.20",
+		CPUCount:       int32Ptr(2),
+		Envs:           map[string]string{"APP_ENV": "test"},
 	})
 	if err != nil {
 		t.Fatalf("CreateTemplate: %v", err)
@@ -140,6 +144,7 @@ func TestGetTemplateDecodesFullResponse(t *testing.T) {
 			"tags":["v1"],
 			"name":"demo",
 			"visibility":"personal",
+			"baseTemplateID":"tpl-base-1",
 			"image":"example-image:v1",
 			"imageSource":"dockerfile",
 			"envdVersion":"sandbox-builder-v1",
@@ -190,6 +195,9 @@ func TestGetTemplateDecodesFullResponse(t *testing.T) {
 	}
 	if resp.TemplateID != "tpl-1" || resp.BuildID != "build-2" || resp.ImageSource != "dockerfile" {
 		t.Fatalf("response = %#v", resp)
+	}
+	if resp.BaseTemplateID != "tpl-base-1" {
+		t.Fatalf("baseTemplateID = %q", resp.BaseTemplateID)
 	}
 	if resp.CreatedBy == nil || resp.CreatedBy.Email != "test-user" {
 		t.Fatalf("createdBy = %#v", resp.CreatedBy)
@@ -247,6 +255,33 @@ func TestListTemplatesEncodesQuery(t *testing.T) {
 	}
 	if len(resp) != 1 || resp[0].TemplateID != "tpl-1" {
 		t.Fatalf("response = %#v", resp)
+	}
+}
+
+func TestGetTemplateByAliasStableRef(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/v1/templates/aliases/tpl-1" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"templateID":"tpl-1","public":false}`))
+	}))
+	defer server.Close()
+
+	service, err := build.NewService(server.URL, "unit-auth-value")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	resp, err := service.GetTemplateByAlias(context.Background(), "tpl-1")
+	if err != nil {
+		t.Fatalf("GetTemplateByAlias: %v", err)
+	}
+	if resp.TemplateID != "tpl-1" {
+		t.Fatalf("templateID = %q", resp.TemplateID)
 	}
 }
 
@@ -488,6 +523,28 @@ func TestBuildValidationErrors(t *testing.T) {
 				return err
 			},
 			want: "alias is required",
+		},
+		{
+			name: "official visibility not supported on create",
+			fn: func() error {
+				_, err := service.CreateTemplate(context.Background(), &build.TemplateCreateRequest{
+					Name:       "official-template",
+					Visibility: "official",
+					Image:      "docker.io/library/alpine:3.20",
+				})
+				return err
+			},
+			want: "official templates are not supported by the public SDK",
+		},
+		{
+			name: "official visibility not supported on update",
+			fn: func() error {
+				_, err := service.UpdateTemplate(context.Background(), "tpl-1", &build.TemplateUpdateRequest{
+					Visibility: strPtr("official"),
+				})
+				return err
+			},
+			want: "official templates are not supported by the public SDK",
 		},
 		{
 			name: "invalid hash query",
@@ -747,5 +804,9 @@ func TestBuildAPIErrorDecoding(t *testing.T) {
 }
 
 func int32Ptr(v int32) *int32 {
+	return &v
+}
+
+func strPtr(v string) *string {
 	return &v
 }

@@ -22,29 +22,37 @@ type DirectBuildResponse struct {
 
 // TemplateCreateRequest is the request body for POST /api/v1/templates.
 type TemplateCreateRequest struct {
-	Name        string            `json:"name,omitempty"`
-	Alias       string            `json:"alias,omitempty"`
-	Visibility  string            `json:"visibility,omitempty"`
-	Public      *bool             `json:"public,omitempty"`
-	Type        string            `json:"type,omitempty"`
-	Version     string            `json:"version,omitempty"`
-	Dockerfile  string            `json:"dockerfile,omitempty"`
-	Image       string            `json:"image,omitempty"`
-	Tags        []string          `json:"tags,omitempty"`
-	Envs        map[string]string `json:"envs,omitempty"`
-	CPUCount    *int32            `json:"cpuCount,omitempty"`
-	MemoryMB    *int32            `json:"memoryMB,omitempty"`
-	DiskSizeMB  *int32            `json:"diskSizeMB,omitempty"`
-	EnvdVersion string            `json:"envdVersion,omitempty"`
-	StorageType string            `json:"storageType,omitempty"`
-	TTLSeconds  *int32            `json:"ttlSeconds,omitempty"`
-	Port        *int32            `json:"port,omitempty"`
-	StartCmd    string            `json:"startCmd,omitempty"`
-	ReadyCmd    string            `json:"readyCmd,omitempty"`
+	Name           string            `json:"name,omitempty"`
+	Visibility     string            `json:"visibility,omitempty"`
+	BaseTemplateID string            `json:"baseTemplateID,omitempty"`
+	Dockerfile     string            `json:"dockerfile,omitempty"`
+	Image          string            `json:"image,omitempty"`
+	Envs           map[string]string `json:"envs,omitempty"`
+	CPUCount       *int32            `json:"cpuCount,omitempty"`
+	MemoryMB       *int32            `json:"memoryMB,omitempty"`
+	DiskSizeMB     *int32            `json:"diskSizeMB,omitempty"`
+	TTLSeconds     *int32            `json:"ttlSeconds,omitempty"`
+	Port           *int32            `json:"port,omitempty"`
+	StartCmd       string            `json:"startCmd,omitempty"`
+	ReadyCmd       string            `json:"readyCmd,omitempty"`
 }
 
 // TemplateUpdateRequest is the request body for PATCH /api/v1/templates/:id.
-type TemplateUpdateRequest = TemplateCreateRequest
+type TemplateUpdateRequest struct {
+	Name           *string           `json:"name,omitempty"`
+	Visibility     *string           `json:"visibility,omitempty"`
+	BaseTemplateID *string           `json:"baseTemplateID,omitempty"`
+	Dockerfile     *string           `json:"dockerfile,omitempty"`
+	Image          *string           `json:"image,omitempty"`
+	Envs           map[string]string `json:"envs,omitempty"`
+	CPUCount       *int32            `json:"cpuCount,omitempty"`
+	MemoryMB       *int32            `json:"memoryMB,omitempty"`
+	DiskSizeMB     *int32            `json:"diskSizeMB,omitempty"`
+	TTLSeconds     *int32            `json:"ttlSeconds,omitempty"`
+	Port           *int32            `json:"port,omitempty"`
+	StartCmd       *string           `json:"startCmd,omitempty"`
+	ReadyCmd       *string           `json:"readyCmd,omitempty"`
+}
 
 // TemplateCreateResponse is the minimal create response.
 type TemplateCreateResponse struct {
@@ -100,36 +108,37 @@ type ListedTemplate struct {
 
 // TemplateResponse describes a template and its build history.
 type TemplateResponse struct {
-	TemplateID    string          `json:"templateID"`
-	BuildID       string          `json:"buildID"`
-	BuildStatus   string          `json:"buildStatus"`
-	Public        bool            `json:"public"`
-	Names         []string        `json:"names"`
-	Aliases       []string        `json:"aliases"`
-	Tags          []string        `json:"tags"`
-	Name          string          `json:"name"`
-	Visibility    string          `json:"visibility"`
-	Image         string          `json:"image"`
-	ImageSource   string          `json:"imageSource"`
-	EnvdVersion   string          `json:"envdVersion"`
-	CPUCount      int32           `json:"cpuCount"`
-	MemoryMB      int32           `json:"memoryMB"`
-	DiskSizeMB    int32           `json:"diskSizeMB"`
-	CreatedBy     *TemplateUser   `json:"createdBy"`
-	CreatedByID   string          `json:"createdByID"`
-	ProjectID     string          `json:"projectID"`
-	CreatedAt     time.Time       `json:"createdAt"`
-	UpdatedAt     time.Time       `json:"updatedAt"`
-	LastSpawnedAt *time.Time      `json:"lastSpawnedAt"`
-	SpawnCount    int             `json:"spawnCount"`
-	BuildCount    int             `json:"buildCount"`
-	StorageType   string          `json:"storageType"`
-	TTLSeconds    int32           `json:"ttlSeconds"`
-	Port          int32           `json:"port"`
-	StartCmd      string          `json:"startCmd"`
-	ReadyCmd      string          `json:"readyCmd"`
-	Builds        []BuildResponse `json:"builds,omitempty"`
-	NextToken     string          `json:"nextToken,omitempty"`
+	TemplateID     string          `json:"templateID"`
+	BuildID        string          `json:"buildID"`
+	BuildStatus    string          `json:"buildStatus"`
+	Public         bool            `json:"public"`
+	Names          []string        `json:"names"`
+	Aliases        []string        `json:"aliases"`
+	Tags           []string        `json:"tags"`
+	Name           string          `json:"name"`
+	Visibility     string          `json:"visibility"`
+	BaseTemplateID string          `json:"baseTemplateID,omitempty"`
+	Image          string          `json:"image"`
+	ImageSource    string          `json:"imageSource"`
+	EnvdVersion    string          `json:"envdVersion"`
+	CPUCount       int32           `json:"cpuCount"`
+	MemoryMB       int32           `json:"memoryMB"`
+	DiskSizeMB     int32           `json:"diskSizeMB"`
+	CreatedBy      *TemplateUser   `json:"createdBy"`
+	CreatedByID    string          `json:"createdByID"`
+	ProjectID      string          `json:"projectID"`
+	CreatedAt      time.Time       `json:"createdAt"`
+	UpdatedAt      time.Time       `json:"updatedAt"`
+	LastSpawnedAt  *time.Time      `json:"lastSpawnedAt"`
+	SpawnCount     int             `json:"spawnCount"`
+	BuildCount     int             `json:"buildCount"`
+	StorageType    string          `json:"storageType"`
+	TTLSeconds     int32           `json:"ttlSeconds"`
+	Port           int32           `json:"port"`
+	StartCmd       string          `json:"startCmd"`
+	ReadyCmd       string          `json:"readyCmd"`
+	Builds         []BuildResponse `json:"builds,omitempty"`
+	NextToken      string          `json:"nextToken,omitempty"`
 }
 
 // BuildStep is one build step in an E2B-compatible rebuild request.

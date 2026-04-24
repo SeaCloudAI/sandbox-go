@@ -54,6 +54,10 @@ func (c *Service) DirectBuild(ctx context.Context, req *DirectBuildRequest) (*Di
 }
 
 func (c *Service) CreateTemplate(ctx context.Context, req *TemplateCreateRequest) (*TemplateCreateResponse, error) {
+	if err := validateTemplateCreateRequest(req); err != nil {
+		return nil, err
+	}
+
 	var resp TemplateCreateResponse
 	if _, err := c.DoJSON(ctx, http.MethodPost, "/api/v1/templates", nil, nil, req, &resp, http.StatusAccepted); err != nil {
 		return nil, err
@@ -115,6 +119,9 @@ func (c *Service) GetTemplate(ctx context.Context, templateID string, params *Ge
 func (c *Service) UpdateTemplate(ctx context.Context, templateID string, req *TemplateUpdateRequest) (*TemplateUpdateResponse, error) {
 	if strings.TrimSpace(templateID) == "" {
 		return nil, ErrTemplateEmpty
+	}
+	if err := validateTemplateUpdateRequest(req); err != nil {
+		return nil, err
 	}
 
 	var resp TemplateUpdateResponse
@@ -350,6 +357,26 @@ func validateGetTemplateParams(params *GetTemplateParams) error {
 	}
 	if params.Limit < 0 || params.Limit > maxTemplateBuildLimit {
 		return fmt.Errorf("sandbox: template build history limit must be between 0 and %d", maxTemplateBuildLimit)
+	}
+	return nil
+}
+
+func validateTemplateCreateRequest(req *TemplateCreateRequest) error {
+	if req == nil {
+		return nil
+	}
+	if strings.EqualFold(strings.TrimSpace(req.Visibility), "official") {
+		return fmt.Errorf("sandbox: official templates are not supported by the public SDK")
+	}
+	return nil
+}
+
+func validateTemplateUpdateRequest(req *TemplateUpdateRequest) error {
+	if req == nil {
+		return nil
+	}
+	if req.Visibility != nil && strings.EqualFold(strings.TrimSpace(*req.Visibility), "official") {
+		return fmt.Errorf("sandbox: official templates are not supported by the public SDK")
 	}
 	return nil
 }

@@ -5,9 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
-	"path"
 	"strings"
-	"time"
 
 	"github.com/SeaCloudAI/sandbox-go"
 	"github.com/SeaCloudAI/sandbox-go/cmd"
@@ -63,11 +61,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	root := strings.TrimSpace(os.Getenv("SANDBOX_EXAMPLE_SANDBOX_ROOT"))
-	if root == "" {
-		root = "/root/workspace"
-	}
-	filePath := path.Join(root, "go-cmd-example.txt")
+	root := "/tmp"
+	filePath := root + "/go-cmd-example.txt"
 
 	if err := runtime.WriteFile(ctx, &cmd.UploadBytesRequest{
 		Path: filePath,
@@ -102,19 +97,4 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Printf("run exit=%d stdout=%q stderr=%q", run.ExitCode, run.Stdout, run.Stderr)
-
-	stream, err := runtime.Start(ctx, &cmd.ProcessStartRequest{
-		Process: &cmd.ProcessConfig{Cmd: "cat"},
-		Tag:     "go-cmd-example-" + time.Now().Format("150405"),
-	}, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer stream.Close()
-
-	firstFrame, err := stream.Next()
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("stream started pid=%d cmdId=%s", firstFrame.Event.Start.PID, firstFrame.Event.Start.CmdID)
 }

@@ -83,10 +83,6 @@ func TestIntegrationBuildPlane(t *testing.T) {
 
 		templateID := created.TemplateID
 		buildID := created.BuildID
-		alias := name
-		if len(created.Aliases) > 0 && created.Aliases[0] != "" {
-			alias = created.Aliases[0]
-		}
 
 		defer func() {
 			if err := service.DeleteTemplate(ctx, templateID); err != nil && !isBuildNotFound(err) {
@@ -102,7 +98,7 @@ func TestIntegrationBuildPlane(t *testing.T) {
 			t.Fatal("list response is nil")
 		}
 
-		aliased, err := service.GetTemplateByAlias(ctx, alias)
+		aliased, err := service.GetTemplateByAlias(ctx, templateID)
 		if err != nil {
 			t.Fatalf("GetTemplateByAlias: %v", err)
 		}
@@ -122,7 +118,7 @@ func TestIntegrationBuildPlane(t *testing.T) {
 		}
 
 		updated, err := service.UpdateTemplate(ctx, templateID, &build.TemplateUpdateRequest{
-			Name: name + "-updated",
+			Name: strPtr(name + "-updated"),
 		})
 		if err != nil {
 			t.Fatalf("UpdateTemplate: %v", err)

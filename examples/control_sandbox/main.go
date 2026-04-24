@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/SeaCloudAI/sandbox-go"
 	"github.com/SeaCloudAI/sandbox-go/control"
@@ -39,12 +37,10 @@ func main() {
 
 	waitReady := true
 	timeout := int32(1800)
-	workspaceID := fmt.Sprintf("go-example-%d", time.Now().UnixNano())
 	created, err := client.CreateSandbox(ctx, &control.NewSandboxRequest{
-		TemplateID:  templateID,
-		WorkspaceID: workspaceID,
-		WaitReady:   &waitReady,
-		Timeout:     &timeout,
+		TemplateID: templateID,
+		WaitReady:  &waitReady,
+		Timeout:    &timeout,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -75,12 +71,4 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Printf("detail sandbox=%s state=%s status=%s", detail.SandboxID, detail.State, detail.Status)
-
-	heartbeat, err := client.SendHeartbeat(ctx, created.SandboxID, &control.HeartbeatRequest{
-		Status: "healthy",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("heartbeat received=%t status=%s requestID=%s", heartbeat.Received, heartbeat.Status, heartbeat.RequestID)
 }

@@ -38,9 +38,8 @@ func main() {
 		image = "docker.io/library/alpine:3.20"
 	}
 	created, err := client.Build.CreateTemplate(ctx, &build.TemplateCreateRequest{
-		Name:       name,
-		Visibility: "personal",
-		Image:      image,
+		Name:  name,
+		Image: image,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -64,10 +63,4 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Printf("detail template=%s image=%s visibility=%s", detail.TemplateID, detail.Image, detail.Visibility)
-
-	builds, err := client.Build.ListBuilds(ctx, created.TemplateID)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("build history count=%d", len(builds.Builds))
 }
