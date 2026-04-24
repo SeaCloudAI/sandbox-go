@@ -49,7 +49,7 @@ import (
 
 func main() {
 	client, err := sandbox.NewClient(
-		"https://hermes-gateway.sandbox.cloud.vtrix.ai",
+		"https://sandbox-gateway.cloud.seaart.ai",
 		os.Getenv("SEACLOUD_API_KEY"),
 		core.WithTimeout(180*time.Second),
 	)
@@ -113,7 +113,7 @@ import (
 
 func main() {
 	client, err := sandbox.NewClient(
-		"https://hermes-gateway.sandbox.cloud.vtrix.ai",
+		"https://sandbox-gateway.cloud.seaart.ai",
 		os.Getenv("SEACLOUD_API_KEY"),
 	)
 	if err != nil {
@@ -151,7 +151,7 @@ import (
 
 func main() {
 	client, err := sandbox.NewClient(
-		"https://hermes-gateway.sandbox.cloud.vtrix.ai",
+		"https://sandbox-gateway.cloud.seaart.ai",
 		os.Getenv("SEACLOUD_API_KEY"),
 	)
 	if err != nil {
@@ -290,7 +290,7 @@ Use production smoke tests only with explicitly provided credentials and disposa
 
 ```bash
 SANDBOX_RUN_INTEGRATION=1 \
-SANDBOX_TEST_BASE_URL=https://hermes-gateway.sandbox.cloud.vtrix.ai \
+SANDBOX_TEST_BASE_URL=https://sandbox-gateway.cloud.seaart.ai \
 SANDBOX_TEST_API_KEY=... \
 SANDBOX_TEST_TEMPLATE_ID=tpl-base-dc11799b9f9f4f9e \
 go test ./tests -run Integration -v
@@ -302,7 +302,7 @@ go test ./tests -run Integration -v
 
 ```bash
 SANDBOX_RUN_INTEGRATION=1 \
-SANDBOX_TEST_BASE_URL=https://hermes-gateway.sandbox.cloud.vtrix.ai \
+SANDBOX_TEST_BASE_URL=https://sandbox-gateway.cloud.seaart.ai \
 SANDBOX_TEST_API_KEY=... \
 SANDBOX_TEST_TEMPLATE_ID=... \
 go test ./tests -v

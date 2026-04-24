@@ -374,7 +374,7 @@ func TestCreateBuildEncodesSupportedFields(t *testing.T) {
 }
 
 func TestCreateBuildRejectsUnsupportedFields(t *testing.T) {
-	service, err := build.NewService("https://hermes-gateway.sandbox.cloud.vtrix.ai", "unit-auth-value")
+	service, err := build.NewService("https://sandbox-gateway.cloud.seaart.ai", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestCreateBuildRejectsUnsupportedFields(t *testing.T) {
 }
 
 func TestBuildValidationErrors(t *testing.T) {
-	service, err := build.NewService("https://hermes-gateway.sandbox.cloud.vtrix.ai", "unit-auth-value")
+	service, err := build.NewService("https://sandbox-gateway.cloud.seaart.ai", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

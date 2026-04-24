@@ -47,7 +47,7 @@ func TestCreateSandbox(t *testing.T) {
 			"clientID":"user-1",
 			"envdVersion":"atlas-0.1.0",
 			"envdAccessToken":"unit-runtime-auth",
-			"envdUrl":"https://hermes-gateway.sandbox.cloud.vtrix.ai",
+			"envdUrl":"https://sandbox-gateway.cloud.seaart.ai",
 			"trafficAccessToken":null,
 			"status":"starting",
 			"state":"starting",
@@ -73,7 +73,7 @@ func TestCreateSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Runtime: %v", err)
 	}
-	if got := runtime.BaseURL(); got != "https://hermes-gateway.sandbox.cloud.vtrix.ai" {
+	if got := runtime.BaseURL(); got != "https://sandbox-gateway.cloud.seaart.ai" {
 		t.Fatalf("runtime baseURL = %q", got)
 	}
 }
@@ -136,7 +136,7 @@ func TestRootListSandboxesReturnsBoundHandles(t *testing.T) {
 				"clientID":"user-1",
 				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
-				"envdUrl":"https://hermes-gateway.sandbox.cloud.vtrix.ai",
+				"envdUrl":"https://sandbox-gateway.cloud.seaart.ai",
 				"status":"running",
 				"startedAt":"2024-01-01T00:00:00Z",
 				"endAt":"2024-01-01T01:00:00Z"
@@ -429,7 +429,7 @@ func TestBoundSandboxHelpersUseStoredClient(t *testing.T) {
 				"clientID":"user-1",
 				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
-				"envdUrl":"https://hermes-gateway.sandbox.cloud.vtrix.ai",
+				"envdUrl":"https://sandbox-gateway.cloud.seaart.ai",
 				"status":"running",
 				"startedAt":"2024-01-01T00:00:00Z",
 				"endAt":"2024-01-01T01:00:00Z"
@@ -442,7 +442,7 @@ func TestBoundSandboxHelpersUseStoredClient(t *testing.T) {
 				"clientID":"user-1",
 				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
-				"envdUrl":"https://hermes-gateway.sandbox.cloud.vtrix.ai",
+				"envdUrl":"https://sandbox-gateway.cloud.seaart.ai",
 				"status":"running",
 				"startedAt":"2024-01-01T00:00:00Z",
 				"endAt":"2024-01-01T01:00:00Z"
@@ -478,7 +478,7 @@ func TestBoundSandboxHelpersUseStoredClient(t *testing.T) {
 }
 
 func TestValidationThroughPublicAPIs(t *testing.T) {
-	service, err := control.NewService("https://hermes-gateway.sandbox.cloud.vtrix.ai", "unit-auth-value")
+	service, err := control.NewService("https://sandbox-gateway.cloud.seaart.ai", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

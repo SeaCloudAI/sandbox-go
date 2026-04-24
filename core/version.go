@@ -2,7 +2,7 @@ package core
 
 import "strings"
 
-var SDKVersion = "dev"
+var SDKVersion = "0.1.0"
 
 func UserAgent(name string) string {
 	version := strings.TrimSpace(SDKVersion)
