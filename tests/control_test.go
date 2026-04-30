@@ -27,8 +27,8 @@ func TestCreateSandbox(t *testing.T) {
 		if got := r.Header.Get("X-User-ID"); got != "" {
 			t.Fatalf("unexpected user header = %q", got)
 		}
-		if got := r.Header.Get("X-Project-ID"); got != "" {
-			t.Fatalf("unexpected project header = %q", got)
+		if got := r.Header.Get("X-Project-ID"); got != "project-1" {
+			t.Fatalf("project header = %q", got)
 		}
 
 		var req control.NewSandboxRequest
@@ -57,7 +57,11 @@ func TestCreateSandbox(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := sandbox.NewClient(server.URL, "unit-auth-value")
+	client, err := sandbox.NewClient(
+		server.URL,
+		"unit-auth-value",
+		core.WithProjectID("project-1"),
+	)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}

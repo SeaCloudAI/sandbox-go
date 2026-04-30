@@ -11,16 +11,17 @@ Before running any example, export these variables once in your shell. Use the g
 
 Recommended reading order:
 
-1. `full_workflow`: create a template from a custom Dockerfile -> wait for build -> start sandbox -> connect runtime -> run -> logs/metrics -> cleanup
+1. `full_workflow`: create a template -> trigger a build -> wait for build -> start sandbox -> connect runtime -> run -> logs/metrics -> cleanup
 2. `control_sandbox`: root client -> create sandbox -> bound sandbox helpers -> cleanup
 3. `cmd_smoke`: create a sandbox through the gateway, then write/read/list/run through runtime
-4. `build_template`: template/build workflows through `client.Build`
+4. `build_template`: template/build workflows through `client.Build` plus `build.NewTemplateBuildBuilder()`
 
 ## Full Workflow
 
 This is the primary example when evaluating the SDK end to end:
 
-- create a template from a custom Dockerfile
+- create a template
+- trigger a build from a runtime-enabled base image
 - wait for the build to finish
 - inspect build status, build logs, and template detail
 - start a sandbox from that template
@@ -35,7 +36,7 @@ Optional env:
 
 - `SANDBOX_EXAMPLE_KEEP_RESOURCES=1`
 
-The base image must already be runtime-enabled for CMD APIs. The example Dockerfile extends that image and adds app-specific content under `/workspace`.
+The base image must already be runtime-enabled for CMD APIs.
 
 ```bash
 go run ./examples/full_workflow
@@ -65,8 +66,9 @@ go run ./examples/control_sandbox
 
 ## Build Plane
 
-Recommended path: the example uses the root `sandbox.NewClient(...)` and `client.Build`.
-The flow stays minimal: create template with `name + image` -> fetch template -> cleanup.
+Recommended path: the example uses the root `sandbox.NewClient(...)`, `client.Build`, and `build.NewTemplateBuildBuilder()`.
+The flow now shows the current public builder contract more explicitly: create template with alias -> alias lookup / stable resolve -> client-generated `buildID` -> build request through the fluent helper -> status polling -> build history + template detail -> cleanup.
+If you need SeaCloud-specific template settings such as `Visibility`, `BaseTemplateID`, or storage options, pass them through `Extensions.Seacloud` on `CreateTemplate` / `UpdateTemplate`.
 
 Required env:
 

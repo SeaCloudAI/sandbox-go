@@ -69,10 +69,10 @@ func TestIntegrationBuildPlane(t *testing.T) {
 
 	t.Run("template lifecycle", func(t *testing.T) {
 		name := "go-build-sdk-" + time.Now().UTC().Format("20060102150405")
+		alias := name
 		created, err := service.CreateTemplate(ctx, &build.TemplateCreateRequest{
-			Name:       name,
-			Visibility: "personal",
-			Image:      image,
+			Name:  name,
+			Alias: alias,
 		})
 		if err != nil {
 			t.Fatalf("CreateTemplate: %v", err)
@@ -83,6 +83,18 @@ func TestIntegrationBuildPlane(t *testing.T) {
 
 		templateID := created.TemplateID
 		buildID := created.BuildID
+
+		if buildID == "" {
+			requestedBuildID := fmt.Sprintf("build-%x", time.Now().UnixNano())
+			buildResp, err := service.CreateBuild(ctx, templateID, requestedBuildID, &build.BuildRequest{FromImage: image})
+			if err != nil {
+				t.Fatalf("CreateBuild: %v", err)
+			}
+			if buildResp == nil {
+				t.Fatal("build trigger response is nil")
+			}
+			buildID = requestedBuildID
+		}
 
 		defer func() {
 			if err := service.DeleteTemplate(ctx, templateID); err != nil && !isBuildNotFound(err) {
@@ -98,12 +110,20 @@ func TestIntegrationBuildPlane(t *testing.T) {
 			t.Fatal("list response is nil")
 		}
 
-		aliased, err := service.GetTemplateByAlias(ctx, templateID)
+		aliased, err := service.GetTemplateByAlias(ctx, alias)
 		if err != nil {
 			t.Fatalf("GetTemplateByAlias: %v", err)
 		}
 		if aliased.TemplateID != templateID {
 			t.Fatalf("alias template id = %q, want %q", aliased.TemplateID, templateID)
+		}
+
+		resolved, err := service.ResolveTemplateRef(ctx, templateID)
+		if err != nil {
+			t.Fatalf("ResolveTemplateRef: %v", err)
+		}
+		if resolved.TemplateID != templateID {
+			t.Fatalf("resolved template id = %q, want %q", resolved.TemplateID, templateID)
 		}
 
 		detail, err := service.GetTemplate(ctx, templateID, &build.GetTemplateParams{Limit: 10})
@@ -113,13 +133,11 @@ func TestIntegrationBuildPlane(t *testing.T) {
 		if detail.TemplateID != templateID {
 			t.Fatalf("detail template id = %q, want %q", detail.TemplateID, templateID)
 		}
-		if buildID == "" {
-			buildID = detail.BuildID
+		if len(detail.Builds) == 0 {
+			t.Fatal("template detail builds is empty")
 		}
 
-		updated, err := service.UpdateTemplate(ctx, templateID, &build.TemplateUpdateRequest{
-			Name: strPtr(name + "-updated"),
-		})
+		updated, err := service.UpdateTemplate(ctx, templateID, &build.TemplateUpdateRequest{Public: boolPtr(false)})
 		if err != nil {
 			t.Fatalf("UpdateTemplate: %v", err)
 		}
@@ -206,6 +224,8 @@ func isBuildNotFound(err error) bool {
 	apiErr, ok := err.(*core.APIError)
 	return ok && apiErr.StatusCode == 404
 }
+
+func boolPtr(v bool) *bool { return &v }
 
 func waitForBuildReady(
 	t *testing.T,

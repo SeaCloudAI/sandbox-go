@@ -1,9 +1,6 @@
 package build
 
-import (
-	"encoding/json"
-	"time"
-)
+import "time"
 
 // DirectBuildRequest is the request body for POST /build.
 type DirectBuildRequest struct {
@@ -20,38 +17,52 @@ type DirectBuildResponse struct {
 	ImageFullName string `json:"imageFullName"`
 }
 
-// TemplateCreateRequest is the request body for POST /api/v1/templates.
-type TemplateCreateRequest struct {
-	Name           string            `json:"name,omitempty"`
-	Visibility     string            `json:"visibility,omitempty"`
+type PublicSeacloudTemplateExtensions struct {
 	BaseTemplateID string            `json:"baseTemplateID,omitempty"`
-	Dockerfile     string            `json:"dockerfile,omitempty"`
-	Image          string            `json:"image,omitempty"`
+	Visibility     string            `json:"visibility,omitempty"`
 	Envs           map[string]string `json:"envs,omitempty"`
-	CPUCount       *int32            `json:"cpuCount,omitempty"`
-	MemoryMB       *int32            `json:"memoryMB,omitempty"`
-	DiskSizeMB     *int32            `json:"diskSizeMB,omitempty"`
+	StorageType    string            `json:"storageType,omitempty"`
+	StorageSizeGB  *int32            `json:"storageSizeGB,omitempty"`
+}
+
+type PublicTemplateExtensions struct {
+	Seacloud *PublicSeacloudTemplateExtensions `json:"seacloud,omitempty"`
+}
+
+type SeacloudTemplateExtensions struct {
+	BaseTemplateID string            `json:"baseTemplateID,omitempty"`
+	Visibility     string            `json:"visibility,omitempty"`
+	Envs           map[string]string `json:"envs,omitempty"`
+	StorageType    string            `json:"storageType,omitempty"`
+	StorageSizeGB  *int32            `json:"storageSizeGB,omitempty"`
+	Image          string            `json:"image,omitempty"`
+	ImageSource    string            `json:"imageSource,omitempty"`
+	ProjectID      string            `json:"projectID,omitempty"`
 	TTLSeconds     *int32            `json:"ttlSeconds,omitempty"`
 	Port           *int32            `json:"port,omitempty"`
 	StartCmd       string            `json:"startCmd,omitempty"`
 	ReadyCmd       string            `json:"readyCmd,omitempty"`
 }
 
+type TemplateExtensions struct {
+	Seacloud *SeacloudTemplateExtensions `json:"seacloud,omitempty"`
+}
+
+// TemplateCreateRequest is the request body for POST /api/v1/templates.
+type TemplateCreateRequest struct {
+	Name       string                    `json:"name,omitempty"`
+	Tags       []string                  `json:"tags,omitempty"`
+	Alias      string                    `json:"alias,omitempty"`
+	TeamID     string                    `json:"teamID,omitempty"`
+	CPUCount   *int32                    `json:"cpuCount,omitempty"`
+	MemoryMB   *int32                    `json:"memoryMB,omitempty"`
+	Extensions *PublicTemplateExtensions `json:"extensions,omitempty"`
+}
+
 // TemplateUpdateRequest is the request body for PATCH /api/v1/templates/:id.
 type TemplateUpdateRequest struct {
-	Name           *string           `json:"name,omitempty"`
-	Visibility     *string           `json:"visibility,omitempty"`
-	BaseTemplateID *string           `json:"baseTemplateID,omitempty"`
-	Dockerfile     *string           `json:"dockerfile,omitempty"`
-	Image          *string           `json:"image,omitempty"`
-	Envs           map[string]string `json:"envs,omitempty"`
-	CPUCount       *int32            `json:"cpuCount,omitempty"`
-	MemoryMB       *int32            `json:"memoryMB,omitempty"`
-	DiskSizeMB     *int32            `json:"diskSizeMB,omitempty"`
-	TTLSeconds     *int32            `json:"ttlSeconds,omitempty"`
-	Port           *int32            `json:"port,omitempty"`
-	StartCmd       *string           `json:"startCmd,omitempty"`
-	ReadyCmd       *string           `json:"readyCmd,omitempty"`
+	Public     *bool                     `json:"public,omitempty"`
+	Extensions *PublicTemplateExtensions `json:"extensions,omitempty"`
 }
 
 // TemplateCreateResponse is the minimal create response.
@@ -97,48 +108,51 @@ type TemplateUser struct {
 
 // ListedTemplate is one item returned by GET /api/v1/templates.
 type ListedTemplate struct {
-	TemplateID  string        `json:"templateID"`
-	BuildID     string        `json:"buildID"`
-	BuildStatus string        `json:"buildStatus"`
-	Public      bool          `json:"public"`
-	Names       []string      `json:"names"`
-	Aliases     []string      `json:"aliases"`
-	CreatedBy   *TemplateUser `json:"createdBy"`
+	TemplateID    string              `json:"templateID"`
+	BuildID       string              `json:"buildID,omitempty"`
+	CPUCount      int32               `json:"cpuCount"`
+	MemoryMB      int32               `json:"memoryMB"`
+	DiskSizeMB    int32               `json:"diskSizeMB"`
+	BuildStatus   string              `json:"buildStatus"`
+	Public        bool                `json:"public"`
+	Names         []string            `json:"names"`
+	Aliases       []string            `json:"aliases"`
+	CreatedAt     time.Time           `json:"createdAt"`
+	UpdatedAt     time.Time           `json:"updatedAt"`
+	CreatedBy     *TemplateUser       `json:"createdBy"`
+	LastSpawnedAt *time.Time          `json:"lastSpawnedAt"`
+	SpawnCount    int64               `json:"spawnCount"`
+	BuildCount    int32               `json:"buildCount"`
+	EnvdVersion   string              `json:"envdVersion,omitempty"`
+	Extensions    *TemplateExtensions `json:"extensions,omitempty"`
 }
 
 // TemplateResponse describes a template and its build history.
 type TemplateResponse struct {
-	TemplateID     string          `json:"templateID"`
-	BuildID        string          `json:"buildID"`
-	BuildStatus    string          `json:"buildStatus"`
-	Public         bool            `json:"public"`
-	Names          []string        `json:"names"`
-	Aliases        []string        `json:"aliases"`
-	Tags           []string        `json:"tags"`
-	Name           string          `json:"name"`
-	Visibility     string          `json:"visibility"`
-	BaseTemplateID string          `json:"baseTemplateID,omitempty"`
-	Image          string          `json:"image"`
-	ImageSource    string          `json:"imageSource"`
-	EnvdVersion    string          `json:"envdVersion"`
-	CPUCount       int32           `json:"cpuCount"`
-	MemoryMB       int32           `json:"memoryMB"`
-	DiskSizeMB     int32           `json:"diskSizeMB"`
-	CreatedBy      *TemplateUser   `json:"createdBy"`
-	CreatedByID    string          `json:"createdByID"`
-	ProjectID      string          `json:"projectID"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	UpdatedAt      time.Time       `json:"updatedAt"`
-	LastSpawnedAt  *time.Time      `json:"lastSpawnedAt"`
-	SpawnCount     int             `json:"spawnCount"`
-	BuildCount     int             `json:"buildCount"`
-	StorageType    string          `json:"storageType"`
-	TTLSeconds     int32           `json:"ttlSeconds"`
-	Port           int32           `json:"port"`
-	StartCmd       string          `json:"startCmd"`
-	ReadyCmd       string          `json:"readyCmd"`
-	Builds         []BuildResponse `json:"builds,omitempty"`
-	NextToken      string          `json:"nextToken,omitempty"`
+	TemplateID    string              `json:"templateID"`
+	Public        bool                `json:"public"`
+	Names         []string            `json:"names"`
+	Aliases       []string            `json:"aliases"`
+	CreatedAt     time.Time           `json:"createdAt"`
+	UpdatedAt     time.Time           `json:"updatedAt"`
+	LastSpawnedAt *time.Time          `json:"lastSpawnedAt"`
+	SpawnCount    int64               `json:"spawnCount"`
+	Builds        []TemplateBuild     `json:"builds,omitempty"`
+	NextToken     string              `json:"nextToken,omitempty"`
+	Extensions    *TemplateExtensions `json:"extensions,omitempty"`
+}
+
+// TemplateBuild is the embedded build summary returned by GET /api/v1/templates/:id.
+type TemplateBuild struct {
+	BuildID     string     `json:"buildID"`
+	Status      string     `json:"status"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+	FinishedAt  *time.Time `json:"finishedAt"`
+	CPUCount    int32      `json:"cpuCount"`
+	MemoryMB    int32      `json:"memoryMB"`
+	DiskSizeMB  int32      `json:"diskSizeMB"`
+	EnvdVersion string     `json:"envdVersion"`
 }
 
 // BuildStep is one build step in an E2B-compatible rebuild request.
@@ -149,17 +163,16 @@ type BuildStep struct {
 	Force     *bool    `json:"force,omitempty"`
 }
 
-// BuildRequest is the request body for POST /api/v1/templates/:id/builds.
+// BuildRequest is the request body for POST /api/v1/templates/:id/builds/:buildId.
 type BuildRequest struct {
-	BuildID           string      `json:"buildID,omitempty"`
-	FromTemplate      string      `json:"fromTemplate,omitempty"`
-	FromImage         string      `json:"fromImage,omitempty"`
-	FromImageRegistry string      `json:"fromImageRegistry,omitempty"`
-	Force             *bool       `json:"force,omitempty"`
-	Steps             []BuildStep `json:"steps,omitempty"`
-	FilesHash         string      `json:"filesHash,omitempty"`
-	StartCmd          string      `json:"startCmd,omitempty"`
-	ReadyCmd          string      `json:"readyCmd,omitempty"`
+	FromTemplate      string         `json:"fromTemplate,omitempty"`
+	FromImage         string         `json:"fromImage,omitempty"`
+	FromImageRegistry map[string]any `json:"fromImageRegistry,omitempty"`
+	Force             *bool          `json:"force,omitempty"`
+	Steps             []BuildStep    `json:"steps,omitempty"`
+	FilesHash         string         `json:"filesHash,omitempty"`
+	StartCmd          string         `json:"startCmd,omitempty"`
+	ReadyCmd          string         `json:"readyCmd,omitempty"`
 }
 
 // BuildResponse describes one build record.
@@ -174,11 +187,8 @@ type BuildResponse struct {
 	FinishedAt   *time.Time `json:"finishedAt"`
 }
 
-// BuildTriggerResponse captures both the native build response and the E2B empty object response.
-type BuildTriggerResponse struct {
-	BuildResponse
-	Empty bool `json:"-"`
-}
+// BuildTriggerResponse captures the E2B empty-object build trigger response.
+type BuildTriggerResponse struct{}
 
 // FilePresenceResponse is returned by GET /api/v1/templates/:id/files/:hash.
 type FilePresenceResponse struct {
@@ -236,68 +246,4 @@ type BuildLogEntry struct {
 // BuildLogsResponse wraps structured build logs.
 type BuildLogsResponse struct {
 	Logs []BuildLogEntry `json:"logs"`
-}
-
-func (r *BuildTriggerResponse) normalize() {
-	if r == nil {
-		return
-	}
-	r.Empty = r.BuildID == "" &&
-		r.TemplateID == "" &&
-		r.Status == "" &&
-		r.Image == "" &&
-		r.ErrorMessage == "" &&
-		r.CreatedAt.IsZero() &&
-		r.UpdatedAt.IsZero() &&
-		r.FinishedAt == nil
-}
-
-func (r *BuildStatusResponse) UnmarshalJSON(data []byte) error {
-	type rawBuildStatusResponse struct {
-		BuildID    string          `json:"buildID"`
-		TemplateID string          `json:"templateID"`
-		Status     string          `json:"status"`
-		Logs       json.RawMessage `json:"logs"`
-		LogEntries json.RawMessage `json:"logEntries"`
-		Reason     any             `json:"reason"`
-		CreatedAt  time.Time       `json:"createdAt"`
-		UpdatedAt  time.Time       `json:"updatedAt"`
-	}
-
-	var raw rawBuildStatusResponse
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	*r = BuildStatusResponse{
-		BuildID:    raw.BuildID,
-		TemplateID: raw.TemplateID,
-		Status:     raw.Status,
-		Reason:     raw.Reason,
-		CreatedAt:  raw.CreatedAt,
-		UpdatedAt:  raw.UpdatedAt,
-	}
-
-	if len(raw.Logs) > 0 && string(raw.Logs) != "null" {
-		if err := json.Unmarshal(raw.Logs, &r.Logs); err != nil {
-			var legacy []BuildLogEntry
-			if err := json.Unmarshal(raw.Logs, &legacy); err == nil {
-				r.LogEntries = legacy
-			} else {
-				return err
-			}
-		}
-	}
-	if len(raw.LogEntries) > 0 && string(raw.LogEntries) != "null" {
-		if err := json.Unmarshal(raw.LogEntries, &r.LogEntries); err != nil {
-			return err
-		}
-	}
-	if len(r.LogEntries) == 0 && len(raw.Logs) > 0 && string(raw.Logs) != "null" {
-		var legacy []BuildLogEntry
-		if err := json.Unmarshal(raw.Logs, &legacy); err == nil {
-			r.LogEntries = legacy
-		}
-	}
-	return nil
 }

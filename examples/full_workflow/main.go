@@ -41,9 +41,7 @@ func main() {
 
 	templateName := fmt.Sprintf("go-full-workflow-%d", time.Now().UnixNano())
 	templateResp, err := client.Build.CreateTemplate(ctx, &build.TemplateCreateRequest{
-		Name:       templateName,
-		Visibility: "personal",
-		Dockerfile: dockerfile(runtimeBaseImage),
+		Name: templateName,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -64,11 +62,19 @@ func main() {
 	}
 
 	if buildID == "" {
-		templateDetail, err := client.Build.GetTemplate(ctx, templateID, nil)
-		if err != nil {
+		requestedBuildID := fmt.Sprintf("build-%x", time.Now().UnixNano())
+		if _, err := client.Build.CreateBuild(
+			ctx,
+			templateID,
+			requestedBuildID,
+			build.NewTemplateBuildBuilder().
+				FromImage(runtimeBaseImage).
+				Run("mkdir -p /workspace && printf 'hello from go full workflow\\n' >/workspace/built-by-template.txt", nil).
+				Request(),
+		); err != nil {
 			log.Fatal(err)
 		}
-		buildID = templateDetail.BuildID
+		buildID = requestedBuildID
 	}
 	if buildID == "" {
 		log.Fatal("buildID is empty")
@@ -98,7 +104,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("template detail: name=%s imageSource=%s buildStatus=%s", templateDetail.Name, templateDetail.ImageSource, templateDetail.BuildStatus)
+	log.Printf("template detail: names=%v nextToken=%s", templateDetail.Names, templateDetail.NextToken)
 
 	waitReady := true
 	timeout := int32(1800)
@@ -196,13 +202,6 @@ func envEnabled(name string) bool {
 	default:
 		return false
 	}
-}
-
-func dockerfile(runtimeBaseImage string) string {
-	return fmt.Sprintf(
-		"FROM %s\nRUN mkdir -p /workspace && printf 'hello from go full workflow\\n' >/workspace/built-by-template.txt\n",
-		runtimeBaseImage,
-	)
 }
 
 func firstNonEmptyLine(input string) string {

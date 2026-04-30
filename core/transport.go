@@ -17,6 +17,7 @@ type Transport struct {
 	apiKey     string
 	httpClient *http.Client
 	userAgent  string
+	projectID  string
 }
 
 type TransportOption func(*Transport)
@@ -36,6 +37,13 @@ func WithTimeout(timeout time.Duration) TransportOption {
 		if timeout > 0 {
 			c.httpClient.Timeout = timeout
 		}
+	}
+}
+
+// WithProjectID injects X-Project-ID on every control/build-plane request.
+func WithProjectID(projectID string) TransportOption {
+	return func(c *Transport) {
+		c.projectID = strings.TrimSpace(projectID)
 	}
 }
 
@@ -90,6 +98,9 @@ func (c *Transport) NewRequest(ctx context.Context, method, path string, body io
 	req.Header.Set("X-API-Key", c.apiKey)
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("User-Agent", c.userAgent)
+	if c.projectID != "" {
+		req.Header.Set("X-Project-ID", c.projectID)
+	}
 	return req, nil
 }
 

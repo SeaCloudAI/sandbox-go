@@ -13,10 +13,11 @@ go get github.com/SeaCloudAI/sandbox-go
 Recommended entrypoint:
 
 - gateway client: `sandbox.NewClient(baseURL, apiKey)`
+- project-scoped gateway client: `sandbox.NewClient(baseURL, apiKey, core.WithProjectID(...))`
 - build plane via root client: `client.Build`
 - runtime helper: `createdSandbox.Runtime()` or `client.RuntimeFromSandbox(createdSandbox)`
 
-`control` and `build` both talk to the same gateway and only need `apiKey`. Runtime access is derived from sandbox create/detail/connect responses; callers should not hardcode runtime endpoints or tokens.
+`control` and `build` both talk to the same gateway. Runtime access is derived from sandbox create/detail/connect responses; callers should not hardcode runtime endpoints or tokens. Project-scoped deployments can inject gateway routing context with `core.WithProjectID(...)`.
 
 ## Environment
 
@@ -24,6 +25,7 @@ Use environment variables for gateway configuration in all examples and quick st
 
 - `SEACLOUD_BASE_URL`: SeaCloudAI gateway entrypoint
 - `SEACLOUD_API_KEY`: API key used for gateway routing and authentication
+- `SEACLOUD_PROJECT_ID`: optional project routing key for project-scoped gateways
 - `SEACLOUD_TEMPLATE_ID`: sandbox template identifier or official template type for your target environment
 
 Set them once in your shell:
@@ -31,6 +33,7 @@ Set them once in your shell:
 ```bash
 export SEACLOUD_BASE_URL="https://sandbox-gateway.cloud.seaart.ai"
 export SEACLOUD_API_KEY="..."
+export SEACLOUD_PROJECT_ID="project-..."
 export SEACLOUD_TEMPLATE_ID="tpl-..."
 ```
 
@@ -80,6 +83,7 @@ func main() {
 	client, err := sandbox.NewClient(
 		os.Getenv("SEACLOUD_BASE_URL"),
 		os.Getenv("SEACLOUD_API_KEY"),
+		core.WithProjectID(os.Getenv("SEACLOUD_PROJECT_ID")),
 		core.WithTimeout(180*time.Second),
 	)
 	if err != nil {
@@ -150,15 +154,28 @@ func main() {
 	}
 
 	resp, err := client.Build.CreateTemplate(context.Background(), &build.TemplateCreateRequest{
-		Name:  "demo",
-		Image: "docker.io/library/alpine:3.20",
+		Name: "demo",
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer client.Build.DeleteTemplate(context.Background(), resp.TemplateID)
 
-	log.Printf("template=%s build=%s", resp.TemplateID, resp.BuildID)
+	buildID := "build-demo"
+	_, err = client.Build.CreateBuild(
+		context.Background(),
+		resp.TemplateID,
+		buildID,
+		build.NewTemplateBuildBuilder().
+			FromImage("docker.io/library/alpine:3.20").
+			Run("echo hello-from-go >/tmp/hello.txt", nil).
+			Request(),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("template=%s build=%s", resp.TemplateID, buildID)
 }
 ```
 
@@ -230,11 +247,12 @@ func main() {
 
 For most integrations, stay on the root client as long as possible:
 
-- initialize once with `sandbox.NewClient(baseURL, apiKey)`
+- initialize once with `sandbox.NewClient(baseURL, apiKey, opts...)`
 - use `CreateSandbox`, `ListSandboxes`, `GetSandbox`, `ConnectSandbox`
 - continue from the returned sandbox object with `Reload()`, `Logs()`, `Pause()`, `Refresh()`, `SetTimeout()`, `Connect()`, `Delete()`
 - only switch to runtime with `Runtime()` when you need file/process/stream operations
 - use `client.Build` only for template/build workflows
+- use `build.NewTemplateBuildBuilder()` when you want a small fluent helper that expands into `BuildRequest`
 
 Low-level domain packages remain available when you want direct stateless calls or need request/response models explicitly.
 
@@ -268,14 +286,25 @@ These routes are intended for platform operators, not normal application workloa
 
 - system: `Metrics`
 - direct build: `DirectBuild`
-- templates: `CreateTemplate`, `ListTemplates`, `GetTemplateByAlias`, `GetTemplate`, `UpdateTemplate`, `DeleteTemplate`
+- templates: `CreateTemplate`, `ListTemplates`, `GetTemplateByAlias`, `ResolveTemplateRef`, `GetTemplate`, `UpdateTemplate`, `DeleteTemplate`
 - builds: `CreateBuild`, `GetBuildFile`, `RollbackTemplate`, `ListBuilds`, `GetBuild`, `GetBuildStatus`, `GetBuildLogs`
 
-The public template request surface intentionally stays small: `name`, `image` or `dockerfile`, and a few optional runtime settings such as `visibility`, `baseTemplateID`, `envs`, `cpuCount`, `memoryMB`, `diskSizeMB`, `ttlSeconds`, `port`, `startCmd`, `readyCmd`.
+The public template contract is split into three layers: E2B core top-level fields (`Name`, `Tags`, `Alias`, `TeamID`, `CPUCount`, `MemoryMB`), SeaCloud template extensions under `Extensions.Seacloud` (`BaseTemplateID`, `Visibility`, `Envs`, `StorageType`, `StorageSizeGB`), and build-only fields on `CreateBuild` (`FromImage`, `FromTemplate`, `Steps`, `StartCmd`, `ReadyCmd`, registry credentials, `FilesHash`).
 
-`CreateTemplate` and `UpdateTemplate` reject `visibility=official` in the public SDK.
+For Go callers, the public write path and template read path now use different extension models on purpose:
 
-`GetTemplateByAlias` is a stable-ref lookup endpoint. It resolves a template by `templateID` or by an official template `type`; it should not be treated as a personal/team display-name search API.
+- `TemplateCreateRequest` / `TemplateUpdateRequest` use `PublicTemplateExtensions`
+- `ListedTemplate` / `TemplateResponse` keep the fuller `TemplateExtensions` shape returned by the service
+
+This matches the current public builder API contract: request fields are intentionally narrower than response fields.
+
+`CreateTemplate` and `UpdateTemplate` reject `visibility=official` on public routes, including `Extensions.Seacloud.Visibility == "official"`.
+
+`CreateBuild` now follows the wire contract directly: callers pass top-level `FilesHash` when needed, and the SDK returns the raw `202 {}` trigger response without adding helper fields.
+
+`GetTemplateByAlias` is a pure alias lookup endpoint. It should only be used with an actual published alias value.
+
+`ResolveTemplateRef` is the SeaCloud stable-ref lookup endpoint. It resolves a template by `templateID`, official template `type`, or visible alias.
 
 ### Runtime Helper
 
@@ -312,23 +341,23 @@ Streaming APIs return `ProcessStream`, `FilesystemWatchStream`, and `ConnectFram
 
 ## Notes
 
-- The gateway entrypoint only needs `baseURL + apiKey` to initialize.
-- Gateway routing context is derived from the API key; SDK callers should not construct control/build headers manually.
+- The gateway entrypoint always needs `baseURL + apiKey` to initialize.
+- Project-scoped deployments can set `core.WithProjectID(...)`; the SDK sends `X-Project-ID` on control/build requests.
 - Runtime access should be derived from sandbox response objects with `Runtime()` or `RuntimeFromSandbox(...)`.
 - `CreateSandbox` and `GetSandbox` responses include `EnvdURL` and `EnvdAccessToken` when the target sandbox supports CMD access.
 - Runtime file/process APIs require a template image that starts nano-executor and returns runtime access fields; if runtime APIs return `404`, verify the selected template supports CMD runtime routes.
 - `waitReady=true` can take longer than the default HTTP timeout in production; pass `core.WithTimeout(...)` when creating long-wait clients.
 - API errors expose `Kind` and `Retryable()` for retry logic and alert routing.
 - Sandbox timeout values are validated to `0..86400`; refresh duration to `0..3600`.
-- Build request validation currently rejects unsupported `fromImageRegistry`, `force`, and per-step `args`/`force`.
+- Build request validation accepts E2B-style `COPY` / `ENV` / `RUN` / `WORKDIR` / `USER` steps, `force`, and structured `fromImageRegistry` credentials (`registry` / `aws` / `gcp`).
 - Some gateways do not expose `/admin/*` or `/build`; integration tests skip those cases on `404`.
 
 ## Security
 
 - Do not commit `SEACLOUD_API_KEY`, `envdAccessToken`, or sandbox access tokens.
 - Treat runtime tokens as sandbox-scoped secrets. Prefer `createdSandbox.Runtime()` or `client.RuntimeFromSandbox(...)` so response-scoped runtime access is not copied into configuration.
-- Do not log raw API keys or runtime tokens. SDK errors may include response bodies, so avoid logging full error payloads in multi-tenant systems.
-- The SDK does not construct tenant routing headers. Gateway routing context is derived from the API key.
+- Do not log raw API keys or runtime tokens. SDK errors may include response bodies, so avoid logging full error payloads in shared systems.
+- Set `core.WithProjectID(...)` when your gateway requires explicit project routing. The SDK sends it as `X-Project-ID`.
 
 ## Production Smoke
 

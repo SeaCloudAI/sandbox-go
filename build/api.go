@@ -95,6 +95,19 @@ func (c *Service) GetTemplateByAlias(ctx context.Context, alias string) (*Templa
 	return &resp, nil
 }
 
+func (c *Service) ResolveTemplateRef(ctx context.Context, ref string) (*TemplateAliasResponse, error) {
+	if strings.TrimSpace(ref) == "" {
+		return nil, fmt.Errorf("sandbox: ref is required")
+	}
+
+	var resp TemplateAliasResponse
+	path := "/api/v1/templates/resolve/" + url.PathEscape(ref)
+	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (c *Service) GetTemplate(ctx context.Context, templateID string, params *GetTemplateParams) (*TemplateResponse, error) {
 	if strings.TrimSpace(templateID) == "" {
 		return nil, ErrTemplateEmpty
@@ -142,9 +155,15 @@ func (c *Service) DeleteTemplate(ctx context.Context, templateID string) error {
 	return err
 }
 
-func (c *Service) CreateBuild(ctx context.Context, templateID string, req *BuildRequest) (*BuildTriggerResponse, error) {
+func (c *Service) CreateBuild(ctx context.Context, templateID, buildID string, req *BuildRequest) (*BuildTriggerResponse, error) {
 	if strings.TrimSpace(templateID) == "" {
 		return nil, ErrTemplateEmpty
+	}
+	if strings.TrimSpace(buildID) == "" {
+		return nil, ErrBuildEmpty
+	}
+	if len(strings.TrimSpace(buildID)) > 63 || !dnsLabelPattern.MatchString(strings.TrimSpace(buildID)) {
+		return nil, fmt.Errorf("sandbox: buildID must be a lowercase DNS label up to 63 characters")
 	}
 	if err := validateBuildRequest(req); err != nil {
 		return nil, err
@@ -156,11 +175,10 @@ func (c *Service) CreateBuild(ctx context.Context, templateID string, req *Build
 	}
 
 	var resp BuildTriggerResponse
-	path := "/api/v1/templates/" + url.PathEscape(templateID) + "/builds"
+	path := "/api/v1/templates/" + url.PathEscape(templateID) + "/builds/" + url.PathEscape(buildID)
 	if _, err := c.DoJSON(ctx, http.MethodPost, path, nil, nil, body, &resp, http.StatusAccepted); err != nil {
 		return nil, err
 	}
-	resp.normalize()
 	return &resp, nil
 }
 
@@ -365,18 +383,23 @@ func validateTemplateCreateRequest(req *TemplateCreateRequest) error {
 	if req == nil {
 		return nil
 	}
-	if strings.EqualFold(strings.TrimSpace(req.Visibility), "official") {
-		return fmt.Errorf("sandbox: official templates are not supported by the public SDK")
-	}
-	return nil
+	return validatePublicTemplateExtensions(req.Extensions)
 }
 
 func validateTemplateUpdateRequest(req *TemplateUpdateRequest) error {
 	if req == nil {
 		return nil
 	}
-	if req.Visibility != nil && strings.EqualFold(strings.TrimSpace(*req.Visibility), "official") {
-		return fmt.Errorf("sandbox: official templates are not supported by the public SDK")
+	return validatePublicTemplateExtensions(req.Extensions)
+}
+
+func validatePublicTemplateExtensions(ext *PublicTemplateExtensions) error {
+	if ext == nil || ext.Seacloud == nil {
+		return nil
+	}
+	seacloud := ext.Seacloud
+	if strings.TrimSpace(seacloud.Visibility) == "official" {
+		return fmt.Errorf("sandbox: extensions.seacloud.visibility=official is not supported by the public SDK")
 	}
 	return nil
 }
@@ -385,56 +408,77 @@ func validateBuildRequest(req *BuildRequest) error {
 	if req == nil {
 		return nil
 	}
-	if buildID := strings.TrimSpace(req.BuildID); buildID != "" {
-		if len(buildID) > 63 || !dnsLabelPattern.MatchString(buildID) {
-			return fmt.Errorf("sandbox: buildID must be a lowercase DNS label up to 63 characters")
+	if req.FromImageRegistry != nil {
+		if err := validateRegistryConfig(req.FromImageRegistry); err != nil {
+			return err
 		}
 	}
-	if registry := strings.TrimSpace(req.FromImageRegistry); registry != "" {
-		return fmt.Errorf("sandbox: fromImageRegistry is not supported yet")
-	}
-	if req.Force != nil {
-		return fmt.Errorf("sandbox: force rebuild is not supported yet")
-	}
-
-	hashes := make(map[string]struct{})
-	if hash := strings.TrimSpace(req.FilesHash); hash != "" {
+	hash := strings.TrimSpace(req.FilesHash)
+	if hash != "" {
 		if !sha256Pattern.MatchString(hash) {
 			return fmt.Errorf("sandbox: filesHash must be a 64-character lowercase hex SHA256")
 		}
-		hashes[hash] = struct{}{}
 	}
 
 	for i, step := range req.Steps {
-		stepType := strings.TrimSpace(step.Type)
+		stepType := strings.ToUpper(strings.TrimSpace(step.Type))
 		switch stepType {
-		case "files", "context":
 		case "":
 			return fmt.Errorf("sandbox: steps[%d].type is required", i)
+		case "COPY":
+			hash := strings.TrimSpace(step.FilesHash)
+			if hash == "" {
+				return fmt.Errorf("sandbox: steps[%d].filesHash is required for COPY", i)
+			}
+			if !sha256Pattern.MatchString(hash) {
+				return fmt.Errorf("sandbox: steps[%d].filesHash must be a 64-character lowercase hex SHA256", i)
+			}
+			if len(step.Args) < 2 {
+				return fmt.Errorf("sandbox: steps[%d].args must include src and dest for COPY", i)
+			}
+		case "ENV":
+			if len(step.Args) == 0 || len(step.Args)%2 != 0 {
+				return fmt.Errorf("sandbox: steps[%d].args must contain ENV key/value pairs", i)
+			}
+		case "RUN", "WORKDIR", "USER":
+			if len(step.Args) == 0 || strings.TrimSpace(step.Args[0]) == "" {
+				return fmt.Errorf("sandbox: steps[%d].args must include the %s value", i, stepType)
+			}
 		default:
-			return fmt.Errorf("sandbox: steps[%d].type must be files or context", i)
+			return fmt.Errorf("sandbox: steps[%d].type must be one of COPY, ENV, RUN, WORKDIR, USER", i)
 		}
-
-		hash := strings.TrimSpace(step.FilesHash)
-		if hash == "" {
-			return fmt.Errorf("sandbox: steps[%d].filesHash is required", i)
-		}
-		if !sha256Pattern.MatchString(hash) {
-			return fmt.Errorf("sandbox: steps[%d].filesHash must be a 64-character lowercase hex SHA256", i)
-		}
-		if len(step.Args) > 0 {
-			return fmt.Errorf("sandbox: steps[%d].args is not supported yet", i)
-		}
-		if step.Force != nil {
-			return fmt.Errorf("sandbox: steps[%d].force is not supported yet", i)
-		}
-		hashes[hash] = struct{}{}
-	}
-
-	if len(hashes) > 1 {
-		return fmt.Errorf("sandbox: multiple different filesHash values are not supported yet")
 	}
 	return nil
+}
+
+func validateRegistryConfig(config map[string]any) error {
+	typeValue, _ := config["type"].(string)
+	typeValue = strings.TrimSpace(typeValue)
+	if typeValue == "" {
+		return fmt.Errorf("sandbox: fromImageRegistry.type is required")
+	}
+	switch typeValue {
+	case "registry":
+		if strings.TrimSpace(asString(config["username"])) == "" || strings.TrimSpace(asString(config["password"])) == "" {
+			return fmt.Errorf("sandbox: fromImageRegistry registry config requires username and password")
+		}
+	case "aws":
+		if strings.TrimSpace(asString(config["awsAccessKeyId"])) == "" || strings.TrimSpace(asString(config["awsSecretAccessKey"])) == "" || strings.TrimSpace(asString(config["awsRegion"])) == "" {
+			return fmt.Errorf("sandbox: fromImageRegistry aws config requires awsAccessKeyId, awsSecretAccessKey, and awsRegion")
+		}
+	case "gcp":
+		if strings.TrimSpace(asString(config["serviceAccountJson"])) == "" {
+			return fmt.Errorf("sandbox: fromImageRegistry gcp config requires serviceAccountJson")
+		}
+	default:
+		return fmt.Errorf("sandbox: fromImageRegistry.type %q is not supported", typeValue)
+	}
+	return nil
+}
+
+func asString(v any) string {
+	s, _ := v.(string)
+	return s
 }
 
 func validateBuildStatusParams(params *BuildStatusParams) error {
@@ -475,10 +519,9 @@ func isZeroBuildRequest(req *BuildRequest) bool {
 	if req == nil {
 		return true
 	}
-	return strings.TrimSpace(req.BuildID) == "" &&
-		strings.TrimSpace(req.FromTemplate) == "" &&
+	return strings.TrimSpace(req.FromTemplate) == "" &&
 		strings.TrimSpace(req.FromImage) == "" &&
-		strings.TrimSpace(req.FromImageRegistry) == "" &&
+		req.FromImageRegistry == nil &&
 		req.Force == nil &&
 		len(req.Steps) == 0 &&
 		strings.TrimSpace(req.FilesHash) == "" &&

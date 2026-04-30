@@ -25,6 +25,9 @@ func TestDirectBuild(t *testing.T) {
 		if got := r.Header.Get("X-Namespace-ID"); got != "" {
 			t.Fatalf("unexpected namespace header = %q", got)
 		}
+		if got := r.Header.Get("X-Project-ID"); got != "project-1" {
+			t.Fatalf("project header = %q", got)
+		}
 
 		var req build.DirectBuildRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -44,7 +47,11 @@ func TestDirectBuild(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(
+		server.URL,
+		"unit-auth-value",
+		core.WithProjectID("project-1"),
+	)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -81,17 +88,17 @@ func TestCreateTemplateUsesGatewayAuthOnly(t *testing.T) {
 		if got := r.Header.Get("X-User-Email"); got != "" {
 			t.Fatalf("unexpected email = %q", got)
 		}
-		if req.Name != "demo" || req.Visibility != "personal" || req.Image != "docker.io/library/alpine:3.20" {
+		if req.Name != "demo" || req.Alias != "demo-alias" || req.TeamID != "project-1" {
 			t.Fatalf("request = %#v", req)
 		}
-		if req.BaseTemplateID != "tpl-base-1" {
-			t.Fatalf("baseTemplateID = %q", req.BaseTemplateID)
+		if len(req.Tags) != 1 || req.Tags[0] != "v1" {
+			t.Fatalf("tags = %#v", req.Tags)
 		}
 		if req.CPUCount == nil || *req.CPUCount != 2 {
 			t.Fatalf("cpuCount = %#v", req.CPUCount)
 		}
-		if req.Envs["APP_ENV"] != "test" {
-			t.Fatalf("envs = %#v", req.Envs)
+		if req.MemoryMB == nil || *req.MemoryMB != 1024 {
+			t.Fatalf("memoryMB = %#v", req.MemoryMB)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -113,12 +120,12 @@ func TestCreateTemplateUsesGatewayAuthOnly(t *testing.T) {
 	}
 
 	resp, err := service.CreateTemplate(context.Background(), &build.TemplateCreateRequest{
-		Name:           "demo",
-		Visibility:     "personal",
-		BaseTemplateID: "tpl-base-1",
-		Image:          "docker.io/library/alpine:3.20",
-		CPUCount:       int32Ptr(2),
-		Envs:           map[string]string{"APP_ENV": "test"},
+		Name:     "demo",
+		Alias:    "demo-alias",
+		Tags:     []string{"v1"},
+		TeamID:   "project-1",
+		CPUCount: int32Ptr(2),
+		MemoryMB: int32Ptr(1024),
 	})
 	if err != nil {
 		t.Fatalf("CreateTemplate: %v", err)
@@ -136,44 +143,24 @@ func TestGetTemplateDecodesFullResponse(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"templateID":"tpl-1",
-			"buildID":"build-2",
-			"buildStatus":"ready",
 			"public":false,
 			"names":["user-1/demo"],
 			"aliases":["demo"],
-			"tags":["v1"],
-			"name":"demo",
-			"visibility":"personal",
-			"baseTemplateID":"tpl-base-1",
-			"image":"example-image:v1",
-			"imageSource":"dockerfile",
-			"envdVersion":"sandbox-builder-v1",
-			"cpuCount":2,
-			"memoryMB":1024,
-			"diskSizeMB":5120,
-			"createdBy":{"id":"user-1","email":"test-user"},
-			"createdByID":"user-1",
-			"projectID":"proj-1",
 			"createdAt":"2026-01-01T00:00:00Z",
 			"updatedAt":"2026-01-01T00:01:00Z",
 			"lastSpawnedAt":"2026-01-01T00:02:00Z",
 			"spawnCount":3,
-			"buildCount":4,
-			"storageType":"ephemeral",
-			"ttlSeconds":300,
-			"port":9000,
-			"startCmd":"npm start",
-			"readyCmd":"test-ready-command",
 			"builds":[
 				{
 					"buildID":"build-2",
-					"templateID":"tpl-1",
 					"status":"ready",
-					"image":"example-image:v1",
-					"errorMessage":"",
 					"createdAt":"2026-01-01T00:00:00Z",
 					"updatedAt":"2026-01-01T00:02:00Z",
-					"finishedAt":"2026-01-01T00:02:00Z"
+					"finishedAt":"2026-01-01T00:02:00Z",
+					"cpuCount":2,
+					"memoryMB":1024,
+					"diskSizeMB":5120,
+					"envdVersion":"sandbox-builder-v1"
 				}
 			],
 			"nextToken":"build-next"
@@ -193,19 +180,13 @@ func TestGetTemplateDecodesFullResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTemplate: %v", err)
 	}
-	if resp.TemplateID != "tpl-1" || resp.BuildID != "build-2" || resp.ImageSource != "dockerfile" {
+	if resp.TemplateID != "tpl-1" {
 		t.Fatalf("response = %#v", resp)
-	}
-	if resp.BaseTemplateID != "tpl-base-1" {
-		t.Fatalf("baseTemplateID = %q", resp.BaseTemplateID)
-	}
-	if resp.CreatedBy == nil || resp.CreatedBy.Email != "test-user" {
-		t.Fatalf("createdBy = %#v", resp.CreatedBy)
 	}
 	if len(resp.Builds) != 1 || resp.Builds[0].Status != "ready" {
 		t.Fatalf("builds = %#v", resp.Builds)
 	}
-	if resp.NextToken != "build-next" || resp.StartCmd != "npm start" || resp.Port != 9000 {
+	if resp.NextToken != "build-next" || resp.Builds[0].MemoryMB != 1024 {
 		t.Fatalf("unexpected fields = %#v", resp)
 	}
 }
@@ -258,12 +239,42 @@ func TestListTemplatesEncodesQuery(t *testing.T) {
 	}
 }
 
-func TestGetTemplateByAliasStableRef(t *testing.T) {
+func TestTemplateValidationRejectsUnsupportedPublicExtensions(t *testing.T) {
+	service, err := build.NewService("https://sandbox-gateway.cloud.seaart.ai", "unit-auth-value")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	_, err = service.CreateTemplate(context.Background(), &build.TemplateCreateRequest{
+		Name: "demo",
+		Extensions: &build.PublicTemplateExtensions{
+			Seacloud: &build.PublicSeacloudTemplateExtensions{
+				Visibility: "official",
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "extensions.seacloud.visibility=official is not supported by the public SDK") {
+		t.Fatalf("CreateTemplate error = %v", err)
+	}
+
+	_, err = service.UpdateTemplate(context.Background(), "tpl-1", &build.TemplateUpdateRequest{
+		Extensions: &build.PublicTemplateExtensions{
+			Seacloud: &build.PublicSeacloudTemplateExtensions{
+				Visibility: "official",
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "extensions.seacloud.visibility=official is not supported by the public SDK") {
+		t.Fatalf("UpdateTemplate error = %v", err)
+	}
+}
+
+func TestGetTemplateByAliasUsesAliasEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Fatalf("method = %s, want GET", r.Method)
 		}
-		if r.URL.Path != "/api/v1/templates/aliases/tpl-1" {
+		if r.URL.Path != "/api/v1/templates/aliases/demo-alias" {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -276,7 +287,7 @@ func TestGetTemplateByAliasStableRef(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	resp, err := service.GetTemplateByAlias(context.Background(), "tpl-1")
+	resp, err := service.GetTemplateByAlias(context.Background(), "demo-alias")
 	if err != nil {
 		t.Fatalf("GetTemplateByAlias: %v", err)
 	}
@@ -285,9 +296,103 @@ func TestGetTemplateByAliasStableRef(t *testing.T) {
 	}
 }
 
-func TestCreateBuildCompatResponseIsMarkedEmpty(t *testing.T) {
+func TestResolveTemplateRefUsesResolveEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/templates/tpl-1/builds" {
+		if r.Method != http.MethodGet {
+			t.Fatalf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/v1/templates/resolve/base" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"templateID":"tpl-base","public":true}`))
+	}))
+	defer server.Close()
+
+	service, err := build.NewService(server.URL, "unit-auth-value")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	resp, err := service.ResolveTemplateRef(context.Background(), "base")
+	if err != nil {
+		t.Fatalf("ResolveTemplateRef: %v", err)
+	}
+	if resp.TemplateID != "tpl-base" {
+		t.Fatalf("templateID = %q", resp.TemplateID)
+	}
+}
+
+func TestTemplateBuildBuilderRequest(t *testing.T) {
+	request := build.NewTemplateBuildBuilder().
+		FromImage("docker.io/library/node:20").
+		FromImageRegistry(map[string]any{
+			"type":     "registry",
+			"username": "robot",
+			"password": "secret",
+		}).
+		Force(true).
+		Copy("package.json", "/app/package.json", strings.Repeat("a", 64), &build.CopyStepOptions{Force: boolPtr(true)}).
+		Run("npm ci", nil).
+		EnvMap(map[string]string{
+			"NODE_ENV": "production",
+			"PORT":     "3000",
+		}).
+		Workdir("/app", nil).
+		User("node", nil).
+		StartCmd("npm start").
+		ReadyCmd("test-ready-command").
+		FilesHash(strings.Repeat("b", 64)).
+		Request()
+
+	if request.FromImage != "docker.io/library/node:20" {
+		t.Fatalf("request = %#v", request)
+	}
+	if request.Force == nil || !*request.Force {
+		t.Fatalf("force = %#v", request.Force)
+	}
+	if request.FromImageRegistry["username"] != "robot" {
+		t.Fatalf("registry = %#v", request.FromImageRegistry)
+	}
+	if len(request.Steps) != 5 {
+		t.Fatalf("steps = %#v", request.Steps)
+	}
+	if request.Steps[0].Type != "COPY" || request.Steps[0].Force == nil || !*request.Steps[0].Force {
+		t.Fatalf("copy step = %#v", request.Steps[0])
+	}
+	if request.Steps[2].Type != "ENV" || len(request.Steps[2].Args) != 4 {
+		t.Fatalf("env step = %#v", request.Steps[2])
+	}
+	if got := strings.Join(request.Steps[2].Args, ","); got != "NODE_ENV,production,PORT,3000" {
+		t.Fatalf("env args = %q", got)
+	}
+	if request.StartCmd != "npm start" || request.ReadyCmd != "test-ready-command" {
+		t.Fatalf("commands = %#v", request)
+	}
+}
+
+func TestTemplateBuildBuilderRequestIsDefensiveCopy(t *testing.T) {
+	builder := build.NewTemplateBuildBuilder().
+		FromImage("docker.io/library/alpine:3.20").
+		Copy("src", "/dst", strings.Repeat("a", 64), nil).
+		Env("NODE_ENV", "production")
+
+	request := builder.Request()
+	request.FromImage = "changed"
+	request.Steps[0].Args[0] = "mutated"
+
+	next := builder.Request()
+	if next.FromImage != "docker.io/library/alpine:3.20" {
+		t.Fatalf("fromImage = %q", next.FromImage)
+	}
+	if next.Steps[0].Args[0] != "src" {
+		t.Fatalf("copy args = %#v", next.Steps[0].Args)
+	}
+}
+
+func TestCreateBuildReturnsRawEmptyObject(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/templates/tpl-1/builds/build-abc" {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
 
@@ -295,8 +400,8 @@ func TestCreateBuildCompatResponseIsMarkedEmpty(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		if req.BuildID != "build-abc" {
-			t.Fatalf("buildID = %q", req.BuildID)
+		if req.FromTemplate != "base" {
+			t.Fatalf("fromTemplate = %q", req.FromTemplate)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -310,20 +415,20 @@ func TestCreateBuildCompatResponseIsMarkedEmpty(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	resp, err := service.CreateBuild(context.Background(), "tpl-1", &build.BuildRequest{
-		BuildID:      "build-abc",
-		FromTemplate: "base",
-	})
+	resp, err := service.CreateBuild(context.Background(), "tpl-1", "build-abc", &build.BuildRequest{FromTemplate: "base"})
 	if err != nil {
 		t.Fatalf("CreateBuild: %v", err)
 	}
-	if !resp.Empty {
-		t.Fatalf("expected empty compat response, got %#v", resp)
+	if resp == nil {
+		t.Fatal("response is nil")
 	}
 }
 
-func TestCreateBuildUsesNativeResponseAndEmptyBody(t *testing.T) {
+func TestCreateBuildUsesEmptyResponseAndEmptyBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/templates/tpl-1/builds/build-empty" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatalf("read body: %v", err)
@@ -337,16 +442,7 @@ func TestCreateBuildUsesNativeResponseAndEmptyBody(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
-		_, _ = w.Write([]byte(`{
-			"buildID":"build-1",
-			"templateID":"tpl-1",
-			"status":"uploaded",
-			"image":"example-image:v1",
-			"errorMessage":"",
-			"createdAt":"2026-01-01T00:00:00Z",
-			"updatedAt":"2026-01-01T00:00:01Z",
-			"finishedAt":"2026-01-01T00:00:02Z"
-		}`))
+		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer server.Close()
 
@@ -355,17 +451,20 @@ func TestCreateBuildUsesNativeResponseAndEmptyBody(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	resp, err := service.CreateBuild(context.Background(), "tpl-1", nil)
+	resp, err := service.CreateBuild(context.Background(), "tpl-1", "build-empty", nil)
 	if err != nil {
 		t.Fatalf("CreateBuild: %v", err)
 	}
-	if resp.Empty || resp.BuildID != "build-1" || resp.Status != "uploaded" {
-		t.Fatalf("response = %#v", resp)
+	if resp == nil {
+		t.Fatal("response is nil")
 	}
 }
 
 func TestCreateBuildEncodesSupportedFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/templates/tpl-1/builds/build-encoded" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
 		var req build.BuildRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
@@ -373,10 +472,13 @@ func TestCreateBuildEncodesSupportedFields(t *testing.T) {
 		if req.FromImage != "docker.io/library/node:20" || req.FilesHash != strings.Repeat("a", 64) {
 			t.Fatalf("request = %#v", req)
 		}
+		if req.FromImageRegistry["type"] != "registry" || req.FromImageRegistry["username"] != "robot" {
+			t.Fatalf("registry config = %#v", req.FromImageRegistry)
+		}
 		if req.StartCmd != "npm start" || req.ReadyCmd != "test-ready-command" {
 			t.Fatalf("commands = %#v", req)
 		}
-		if len(req.Steps) != 1 || req.Steps[0].Type != "files" || req.Steps[0].FilesHash != strings.Repeat("a", 64) {
+		if len(req.Steps) != 3 || req.Steps[0].Type != "COPY" || req.Steps[0].FilesHash != strings.Repeat("a", 64) {
 			t.Fatalf("steps = %#v", req.Steps)
 		}
 
@@ -391,11 +493,14 @@ func TestCreateBuildEncodesSupportedFields(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	resp, err := service.CreateBuild(context.Background(), "tpl-1", &build.BuildRequest{
-		FromImage: "docker.io/library/node:20",
-		FilesHash: strings.Repeat("a", 64),
+	resp, err := service.CreateBuild(context.Background(), "tpl-1", "build-encoded", &build.BuildRequest{
+		FromImage:         "docker.io/library/node:20",
+		FromImageRegistry: map[string]any{"type": "registry", "username": "robot", "password": "secret"},
+		FilesHash:         strings.Repeat("a", 64),
 		Steps: []build.BuildStep{
-			{Type: "files", FilesHash: strings.Repeat("a", 64)},
+			{Type: "COPY", FilesHash: strings.Repeat("a", 64), Args: []string{"package.json", "/app/package.json"}},
+			{Type: "RUN", Args: []string{"npm install"}},
+			{Type: "ENV", Args: []string{"NODE_ENV", "production"}},
 		},
 		StartCmd: "npm start",
 		ReadyCmd: "test-ready-command",
@@ -403,8 +508,8 @@ func TestCreateBuildEncodesSupportedFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateBuild: %v", err)
 	}
-	if !resp.Empty {
-		t.Fatalf("expected compat empty response, got %#v", resp)
+	if resp == nil {
+		t.Fatal("response is nil")
 	}
 }
 
@@ -414,8 +519,8 @@ func TestCreateBuildRejectsUnsupportedFields(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	_, err = service.CreateBuild(context.Background(), "tpl-1", &build.BuildRequest{
-		FromImageRegistry: "docker.io/library/node:20",
+	_, err = service.CreateBuild(context.Background(), "tpl-1", "build-unsupported", &build.BuildRequest{
+		FromImageRegistry: map[string]any{"type": "registry"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "fromImageRegistry") {
 		t.Fatalf("CreateBuild error = %v", err)
@@ -436,9 +541,7 @@ func TestBuildValidationErrors(t *testing.T) {
 		{
 			name: "invalid build id",
 			fn: func() error {
-				_, err := service.CreateBuild(context.Background(), "tpl-1", &build.BuildRequest{
-					BuildID: "Build-Uppercase",
-				})
+				_, err := service.CreateBuild(context.Background(), "tpl-1", "Build-Uppercase", nil)
 				return err
 			},
 			want: "buildID must be",
@@ -446,7 +549,7 @@ func TestBuildValidationErrors(t *testing.T) {
 		{
 			name: "invalid files hash",
 			fn: func() error {
-				_, err := service.CreateBuild(context.Background(), "tpl-1", &build.BuildRequest{
+				_, err := service.CreateBuild(context.Background(), "tpl-1", "build-test", &build.BuildRequest{
 					FilesHash: "abc",
 				})
 				return err
@@ -456,7 +559,7 @@ func TestBuildValidationErrors(t *testing.T) {
 		{
 			name: "missing step type",
 			fn: func() error {
-				_, err := service.CreateBuild(context.Background(), "tpl-1", &build.BuildRequest{
+				_, err := service.CreateBuild(context.Background(), "tpl-1", "build-test", &build.BuildRequest{
 					Steps: []build.BuildStep{{FilesHash: strings.Repeat("a", 64)}},
 				})
 				return err
@@ -464,25 +567,24 @@ func TestBuildValidationErrors(t *testing.T) {
 			want: "steps[0].type is required",
 		},
 		{
-			name: "step args unsupported",
+			name: "copy args missing destination",
 			fn: func() error {
-				_, err := service.CreateBuild(context.Background(), "tpl-1", &build.BuildRequest{
-					Steps: []build.BuildStep{{Type: "files", FilesHash: strings.Repeat("a", 64), Args: []string{"x"}}},
+				_, err := service.CreateBuild(context.Background(), "tpl-1", "build-test", &build.BuildRequest{
+					Steps: []build.BuildStep{{Type: "COPY", FilesHash: strings.Repeat("a", 64), Args: []string{"x"}}},
 				})
 				return err
 			},
-			want: "steps[0].args is not supported",
+			want: "steps[0].args must include src and dest for COPY",
 		},
 		{
-			name: "multiple hashes unsupported",
+			name: "env pairs invalid",
 			fn: func() error {
-				_, err := service.CreateBuild(context.Background(), "tpl-1", &build.BuildRequest{
-					FilesHash: strings.Repeat("a", 64),
-					Steps:     []build.BuildStep{{Type: "files", FilesHash: strings.Repeat("b", 64)}},
+				_, err := service.CreateBuild(context.Background(), "tpl-1", "build-test", &build.BuildRequest{
+					Steps: []build.BuildStep{{Type: "ENV", Args: []string{"NODE_ENV"}}},
 				})
 				return err
 			},
-			want: "multiple different filesHash",
+			want: "steps[0].args must contain ENV key/value pairs",
 		},
 		{
 			name: "invalid status limit",
@@ -525,28 +627,6 @@ func TestBuildValidationErrors(t *testing.T) {
 			want: "alias is required",
 		},
 		{
-			name: "official visibility not supported on create",
-			fn: func() error {
-				_, err := service.CreateTemplate(context.Background(), &build.TemplateCreateRequest{
-					Name:       "official-template",
-					Visibility: "official",
-					Image:      "docker.io/library/alpine:3.20",
-				})
-				return err
-			},
-			want: "official templates are not supported by the public SDK",
-		},
-		{
-			name: "official visibility not supported on update",
-			fn: func() error {
-				_, err := service.UpdateTemplate(context.Background(), "tpl-1", &build.TemplateUpdateRequest{
-					Visibility: strPtr("official"),
-				})
-				return err
-			},
-			want: "official templates are not supported by the public SDK",
-		},
-		{
 			name: "invalid hash query",
 			fn: func() error {
 				_, err := service.GetBuildFile(context.Background(), "tpl-1", "bad")
@@ -566,7 +646,7 @@ func TestBuildValidationErrors(t *testing.T) {
 	}
 }
 
-func TestGetBuildStatusAllowsAnonymousPollingAndLegacyLogsShape(t *testing.T) {
+func TestGetBuildStatusAllowsAnonymousPolling(t *testing.T) {
 	logsOffset := 5
 	limit := 10
 
@@ -587,7 +667,8 @@ func TestGetBuildStatusAllowsAnonymousPollingAndLegacyLogsShape(t *testing.T) {
 			"buildID":"build-1",
 			"templateID":"tpl-1",
 			"status":"building",
-			"logs":[
+			"logs":["raw-line"],
+			"logEntries":[
 				{
 					"timestamp":"2026-01-01T00:00:00Z",
 					"level":"info",
@@ -614,44 +695,7 @@ func TestGetBuildStatusAllowsAnonymousPollingAndLegacyLogsShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetBuildStatus: %v", err)
 	}
-	if len(resp.LogEntries) != 1 || resp.LogEntries[0].Message != "building image" {
-		t.Fatalf("logEntries = %#v", resp.LogEntries)
-	}
-}
-
-func TestGetBuildStatusPrefersExplicitLogEntries(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"buildID":"build-1",
-			"templateID":"tpl-1",
-			"status":"building",
-			"logs":["raw-line"],
-			"logEntries":[
-				{
-					"timestamp":"2026-01-01T00:00:00Z",
-					"level":"info",
-					"step":"build",
-					"message":"structured log"
-				}
-			],
-			"reason":"queued",
-			"createdAt":"2026-01-01T00:00:00Z",
-			"updatedAt":"2026-01-01T00:00:01Z"
-		}`))
-	}))
-	defer server.Close()
-
-	service, err := build.NewService(server.URL, "unit-auth-value")
-	if err != nil {
-		t.Fatalf("NewService: %v", err)
-	}
-
-	resp, err := service.GetBuildStatus(context.Background(), "tpl-1", "build-1", nil)
-	if err != nil {
-		t.Fatalf("GetBuildStatus: %v", err)
-	}
-	if len(resp.LogEntries) != 1 || resp.LogEntries[0].Message != "structured log" || len(resp.Logs) != 1 {
+	if len(resp.LogEntries) != 1 || resp.LogEntries[0].Message != "building image" || len(resp.Logs) != 1 {
 		t.Fatalf("response = %#v", resp)
 	}
 }
