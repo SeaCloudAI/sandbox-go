@@ -21,7 +21,7 @@ func TestIntegrationBuildPlane(t *testing.T) {
 
 	ctx := context.Background()
 
-	t.Run("direct build anonymous polling", func(t *testing.T) {
+	t.Run("direct build polling", func(t *testing.T) {
 		resp, err := service.DirectBuild(ctx, &build.DirectBuildRequest{
 			Project:    "sdk-build-integration",
 			Image:      "go-direct-build",
@@ -29,9 +29,6 @@ func TestIntegrationBuildPlane(t *testing.T) {
 			Dockerfile: "FROM alpine:3.20\nRUN echo direct-build-test >/tmp/direct-build.txt\n",
 		})
 		if err != nil {
-			if apiErr, ok := err.(*core.APIError); ok && apiErr.StatusCode == 404 {
-				t.Skip("direct build endpoint is not exposed by this gateway")
-			}
 			t.Fatalf("DirectBuild: %v", err)
 		}
 		if resp.TemplateID == "" || resp.BuildID == "" || resp.ImageFullName == "" {
@@ -40,7 +37,7 @@ func TestIntegrationBuildPlane(t *testing.T) {
 
 		defer func() {
 			if err := service.DeleteTemplate(ctx, resp.TemplateID); err != nil && !isBuildNotFound(err) {
-				t.Fatalf("DeleteTemplate anonymous: %v", err)
+				t.Fatalf("DeleteTemplate: %v", err)
 			}
 		}()
 
@@ -51,7 +48,7 @@ func TestIntegrationBuildPlane(t *testing.T) {
 
 		buildResp, err := service.GetBuild(ctx, resp.TemplateID, resp.BuildID)
 		if err != nil {
-			t.Fatalf("GetBuild anonymous: %v", err)
+			t.Fatalf("GetBuild: %v", err)
 		}
 		if buildResp.Status != "ready" {
 			t.Fatalf("build = %#v", buildResp)
@@ -60,7 +57,7 @@ func TestIntegrationBuildPlane(t *testing.T) {
 		limit := 10
 		logs, err := service.GetBuildLogs(ctx, resp.TemplateID, resp.BuildID, &build.BuildLogsParams{Limit: &limit})
 		if err != nil {
-			t.Fatalf("GetBuildLogs anonymous: %v", err)
+			t.Fatalf("GetBuildLogs: %v", err)
 		}
 		if logs.Logs == nil {
 			t.Fatal("logs response is nil")
