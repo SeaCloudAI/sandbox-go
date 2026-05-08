@@ -28,10 +28,11 @@ const (
 type Signal string
 
 const (
-	SignalSIGTERM Signal = "SIGTERM"
-	SignalSIGKILL Signal = "SIGKILL"
-	SignalSIGINT  Signal = "SIGINT"
-	SignalSIGHUP  Signal = "SIGHUP"
+	SignalUnspecified Signal = "SIGNAL_UNSPECIFIED"
+	SignalSIGTERM     Signal = "SIGNAL_SIGTERM"
+	SignalSIGKILL     Signal = "SIGNAL_SIGKILL"
+	SignalSIGINT      Signal = "SIGINT"
+	SignalSIGHUP      Signal = "SIGHUP"
 )
 
 type RequestOptions struct {

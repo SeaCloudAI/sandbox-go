@@ -18,6 +18,7 @@ var (
 	ErrProcessSelectorEmpty  = errors.New("sandbox/cmd: process selector requires pid or tag")
 	ErrProcessSelectorAmbig  = errors.New("sandbox/cmd: process selector requires exactly one of pid or tag")
 	ErrProcessInputEmpty     = errors.New("sandbox/cmd: process input requires stdin or pty")
+	ErrPTYRequired           = errors.New("sandbox/cmd: pty is required")
 	ErrMultipartFilesEmpty   = errors.New("sandbox/cmd: multipart upload requires at least one part")
 	ErrStreamInputFramesZero = errors.New("sandbox/cmd: stream input requires at least one frame")
 )

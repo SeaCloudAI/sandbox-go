@@ -69,10 +69,8 @@ func TestIntegrationBuildPlane(t *testing.T) {
 
 	t.Run("template lifecycle", func(t *testing.T) {
 		name := "go-build-sdk-" + time.Now().UTC().Format("20060102150405")
-		alias := name
 		created, err := service.CreateTemplate(ctx, &build.TemplateCreateRequest{
-			Name:  name,
-			Alias: alias,
+			Name: name,
 		})
 		if err != nil {
 			t.Fatalf("CreateTemplate: %v", err)
@@ -110,7 +108,7 @@ func TestIntegrationBuildPlane(t *testing.T) {
 			t.Fatal("list response is nil")
 		}
 
-		aliased, err := service.GetTemplateByAlias(ctx, alias)
+		aliased, err := service.GetTemplateByAlias(ctx, name)
 		if err != nil {
 			t.Fatalf("GetTemplateByAlias: %v", err)
 		}
@@ -137,7 +135,13 @@ func TestIntegrationBuildPlane(t *testing.T) {
 			t.Fatal("template detail builds is empty")
 		}
 
-		updated, err := service.UpdateTemplate(ctx, templateID, &build.TemplateUpdateRequest{Public: boolPtr(false)})
+		updated, err := service.UpdateTemplate(ctx, templateID, &build.TemplateUpdateRequest{
+			Extensions: &build.PublicTemplateExtensions{
+				Seacloud: &build.PublicSeacloudTemplateExtensions{
+					Envs: map[string]string{"SDK_TEST": "1"},
+				},
+			},
+		})
 		if err != nil {
 			t.Fatalf("UpdateTemplate: %v", err)
 		}

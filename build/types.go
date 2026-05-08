@@ -52,8 +52,6 @@ type TemplateExtensions struct {
 type TemplateCreateRequest struct {
 	Name       string                    `json:"name,omitempty"`
 	Tags       []string                  `json:"tags,omitempty"`
-	Alias      string                    `json:"alias,omitempty"`
-	TeamID     string                    `json:"teamID,omitempty"`
 	CPUCount   *int32                    `json:"cpuCount,omitempty"`
 	MemoryMB   *int32                    `json:"memoryMB,omitempty"`
 	Extensions *PublicTemplateExtensions `json:"extensions,omitempty"`
@@ -61,7 +59,6 @@ type TemplateCreateRequest struct {
 
 // TemplateUpdateRequest is the request body for PATCH /api/v1/templates/:id.
 type TemplateUpdateRequest struct {
-	Public     *bool                     `json:"public,omitempty"`
 	Extensions *PublicTemplateExtensions `json:"extensions,omitempty"`
 }
 
@@ -106,6 +103,18 @@ type TemplateUser struct {
 	Email string `json:"email,omitempty"`
 }
 
+type TemplateToleration struct {
+	Key      string `json:"key"`
+	Operator string `json:"operator"`
+	Value    string `json:"value,omitempty"`
+	Effect   string `json:"effect"`
+}
+
+type TemplateDNSOption struct {
+	Name  string `json:"name"`
+	Value string `json:"value,omitempty"`
+}
+
 // ListedTemplate is one item returned by GET /api/v1/templates.
 type ListedTemplate struct {
 	TemplateID    string              `json:"templateID"`
@@ -129,17 +138,68 @@ type ListedTemplate struct {
 
 // TemplateResponse describes a template and its build history.
 type TemplateResponse struct {
-	TemplateID    string              `json:"templateID"`
-	Public        bool                `json:"public"`
-	Names         []string            `json:"names"`
-	Aliases       []string            `json:"aliases"`
-	CreatedAt     time.Time           `json:"createdAt"`
-	UpdatedAt     time.Time           `json:"updatedAt"`
-	LastSpawnedAt *time.Time          `json:"lastSpawnedAt"`
-	SpawnCount    int64               `json:"spawnCount"`
-	Builds        []TemplateBuild     `json:"builds,omitempty"`
-	NextToken     string              `json:"nextToken,omitempty"`
-	Extensions    *TemplateExtensions `json:"extensions,omitempty"`
+	TemplateID            string               `json:"templateID"`
+	BuildID               string               `json:"buildID,omitempty"`
+	BuildStatus           string               `json:"buildStatus,omitempty"`
+	CPUCount              *int32               `json:"cpuCount,omitempty"`
+	MemoryMB              *int32               `json:"memoryMB,omitempty"`
+	DiskSizeMB            *int32               `json:"diskSizeMB,omitempty"`
+	Public                bool                 `json:"public"`
+	Aliases               []string             `json:"aliases"`
+	Names                 []string             `json:"names"`
+	CreatedBy             *TemplateUser        `json:"createdBy,omitempty"`
+	CreatedAt             time.Time            `json:"createdAt"`
+	UpdatedAt             time.Time            `json:"updatedAt"`
+	LastSpawnedAt         *time.Time           `json:"lastSpawnedAt"`
+	SpawnCount            int64                `json:"spawnCount"`
+	BuildCount            *int32               `json:"buildCount,omitempty"`
+	EnvdVersion           string               `json:"envdVersion,omitempty"`
+	Builds                []TemplateBuild      `json:"builds,omitempty"`
+	NextToken             string               `json:"nextToken,omitempty"`
+	Type                  string               `json:"type,omitempty"`
+	Version               string               `json:"version,omitempty"`
+	Name                  string               `json:"name,omitempty"`
+	Visibility            string               `json:"visibility,omitempty"`
+	BaseTemplateID        string               `json:"baseTemplateID,omitempty"`
+	Image                 string               `json:"image,omitempty"`
+	ImageSource           string               `json:"imageSource,omitempty"`
+	ProjectID             string               `json:"projectID,omitempty"`
+	StorageType           string               `json:"storageType,omitempty"`
+	StorageSizeGB         *int32               `json:"storageSizeGB,omitempty"`
+	StorageClass          string               `json:"storageClass,omitempty"`
+	EmptyDirSizeLimit     string               `json:"emptyDirSizeLimit,omitempty"`
+	EmptyDirMedium        string               `json:"emptyDirMedium,omitempty"`
+	ObjectBucket          string               `json:"objectBucket,omitempty"`
+	ObjectKeyPrefix       string               `json:"objectKeyPrefix,omitempty"`
+	WorkspaceID           string               `json:"workspaceID,omitempty"`
+	NfsHostPath           string               `json:"nfsHostPath,omitempty"`
+	CPULimitRatio         *float64             `json:"cpuLimitRatio,omitempty"`
+	MemoryLimitRatio      *float64             `json:"memoryLimitRatio,omitempty"`
+	Namespace             string               `json:"namespace,omitempty"`
+	Location              string               `json:"location,omitempty"`
+	EnvdBaseDomain        string               `json:"envdBaseDomain,omitempty"`
+	RuntimeClassName      string               `json:"runtimeClassName,omitempty"`
+	Tolerations           []TemplateToleration `json:"tolerations,omitempty"`
+	ImagePullSecrets      []string             `json:"imagePullSecrets,omitempty"`
+	ImagePullPolicy       string               `json:"imagePullPolicy,omitempty"`
+	DNSPolicy             string               `json:"dnsPolicy,omitempty"`
+	DNSNameservers        []string             `json:"dnsNameservers,omitempty"`
+	DNSSearches           []string             `json:"dnsSearches,omitempty"`
+	DNSOptions            []TemplateDNSOption  `json:"dnsOptions,omitempty"`
+	Port                  *int32               `json:"port,omitempty"`
+	Labels                map[string]string    `json:"labels,omitempty"`
+	TTLSeconds            *int32               `json:"ttlSeconds,omitempty"`
+	DaemonImage           string               `json:"daemonImage,omitempty"`
+	CloudsinkURL          string               `json:"cloudsinkURL,omitempty"`
+	SandboxRoot           string               `json:"sandboxRoot,omitempty"`
+	ProbeTargets          string               `json:"probeTargets,omitempty"`
+	ProbeIntervalSecs     *int32               `json:"probeIntervalSecs,omitempty"`
+	ProbeTimeoutSecs      *int32               `json:"probeTimeoutSecs,omitempty"`
+	GatewayURL            string               `json:"gatewayURL,omitempty"`
+	HeartbeatIntervalSecs *int32               `json:"heartbeatIntervalSecs,omitempty"`
+	StartCmd              string               `json:"startCmd,omitempty"`
+	ReadyCmd              string               `json:"readyCmd,omitempty"`
+	Extensions            *TemplateExtensions  `json:"extensions,omitempty"`
 }
 
 // TemplateBuild is the embedded build summary returned by GET /api/v1/templates/:id.

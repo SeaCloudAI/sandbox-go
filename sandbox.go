@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/SeaCloudAI/sandbox-go/cmd"
 	"github.com/SeaCloudAI/sandbox-go/control"
 	"github.com/SeaCloudAI/sandbox-go/core"
 )
@@ -22,7 +23,7 @@ type SandboxDetail struct {
 
 type SandboxHandle struct {
 	*control.ListedSandbox
-	client  *Client
+	client *Client
 }
 
 type ConnectSandboxResponse struct {
@@ -96,12 +97,43 @@ func (s *Sandbox) Reload(ctx context.Context) (*SandboxDetail, error) {
 	return s.client.GetSandbox(ctx, s.SandboxID)
 }
 
+// Resume reconnects to a paused sandbox and returns the running sandbox handle.
+func (s *Sandbox) Resume(ctx context.Context, timeout int32) (*Sandbox, error) {
+	if timeout <= 0 {
+		timeout = 300
+	}
+	resp, err := s.client.ConnectSandbox(ctx, s.SandboxID, &control.ConnectSandboxRequest{Timeout: timeout})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Sandbox, nil
+}
+
+// GetInfo fetches the latest sandbox detail for this sandbox ID.
+func (s *Sandbox) GetInfo(ctx context.Context) (*SandboxDetail, error) {
+	return s.client.GetSandbox(ctx, s.SandboxID)
+}
+
+// GetMetrics reads runtime metrics for sandboxes that expose nano-executor access.
+func (s *Sandbox) GetMetrics(ctx context.Context) (*cmd.MetricsResponse, error) {
+	runtime, err := s.Runtime()
+	if err != nil {
+		return nil, err
+	}
+	return runtime.Metrics(ctx)
+}
+
 func (s *Sandbox) Logs(ctx context.Context, params *control.SandboxLogsParams) (*control.SandboxLogsResponse, error) {
 	return s.client.GetSandboxLogs(ctx, s.SandboxID, params)
 }
 
 func (s *Sandbox) Pause(ctx context.Context) error {
 	return s.client.PauseSandbox(ctx, s.SandboxID)
+}
+
+// Kill deletes the sandbox.
+func (s *Sandbox) Kill(ctx context.Context) error {
+	return s.Delete(ctx)
 }
 
 func (s *Sandbox) Delete(ctx context.Context) error {
@@ -118,6 +150,11 @@ func (s *Sandbox) SetTimeout(ctx context.Context, req *control.TimeoutRequest) e
 
 func (s *Sandbox) Connect(ctx context.Context, req *control.ConnectSandboxRequest) (*ConnectSandboxResponse, error) {
 	return s.client.ConnectSandbox(ctx, s.SandboxID, req)
+}
+
+// IsRunning reports whether the sandbox is in an active state.
+func (s *Sandbox) IsRunning() bool {
+	return isRunningSandboxState(s.State, s.Status)
 }
 
 func (s *SandboxDetail) Runtime() (*Runtime, error) {
@@ -139,12 +176,43 @@ func (s *SandboxDetail) Reload(ctx context.Context) (*SandboxDetail, error) {
 	return s.client.GetSandbox(ctx, s.SandboxID)
 }
 
+// Resume reconnects to a paused sandbox detail and returns a running sandbox handle.
+func (s *SandboxDetail) Resume(ctx context.Context, timeout int32) (*Sandbox, error) {
+	if timeout <= 0 {
+		timeout = 300
+	}
+	resp, err := s.client.ConnectSandbox(ctx, s.SandboxID, &control.ConnectSandboxRequest{Timeout: timeout})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Sandbox, nil
+}
+
+// GetInfo refreshes the sandbox detail for this sandbox ID.
+func (s *SandboxDetail) GetInfo(ctx context.Context) (*SandboxDetail, error) {
+	return s.client.GetSandbox(ctx, s.SandboxID)
+}
+
+// GetMetrics reads runtime metrics for sandboxes that expose nano-executor access.
+func (s *SandboxDetail) GetMetrics(ctx context.Context) (*cmd.MetricsResponse, error) {
+	runtime, err := s.Runtime()
+	if err != nil {
+		return nil, err
+	}
+	return runtime.Metrics(ctx)
+}
+
 func (s *SandboxDetail) Logs(ctx context.Context, params *control.SandboxLogsParams) (*control.SandboxLogsResponse, error) {
 	return s.client.GetSandboxLogs(ctx, s.SandboxID, params)
 }
 
 func (s *SandboxDetail) Pause(ctx context.Context) error {
 	return s.client.PauseSandbox(ctx, s.SandboxID)
+}
+
+// Kill deletes the sandbox.
+func (s *SandboxDetail) Kill(ctx context.Context) error {
+	return s.Delete(ctx)
 }
 
 func (s *SandboxDetail) Delete(ctx context.Context) error {
@@ -163,7 +231,29 @@ func (s *SandboxDetail) Connect(ctx context.Context, req *control.ConnectSandbox
 	return s.client.ConnectSandbox(ctx, s.SandboxID, req)
 }
 
+// IsRunning reports whether the sandbox is in an active state.
+func (s *SandboxDetail) IsRunning() bool {
+	return isRunningSandboxState(s.State, s.Status)
+}
+
 func (s *SandboxHandle) Reload(ctx context.Context) (*SandboxDetail, error) {
+	return s.client.GetSandbox(ctx, s.SandboxID)
+}
+
+// Resume reconnects to a paused sandbox handle and returns a running sandbox handle.
+func (s *SandboxHandle) Resume(ctx context.Context, timeout int32) (*Sandbox, error) {
+	if timeout <= 0 {
+		timeout = 300
+	}
+	resp, err := s.client.ConnectSandbox(ctx, s.SandboxID, &control.ConnectSandboxRequest{Timeout: timeout})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Sandbox, nil
+}
+
+// GetInfo fetches the latest sandbox detail for this sandbox ID.
+func (s *SandboxHandle) GetInfo(ctx context.Context) (*SandboxDetail, error) {
 	return s.client.GetSandbox(ctx, s.SandboxID)
 }
 
@@ -173,6 +263,11 @@ func (s *SandboxHandle) Logs(ctx context.Context, params *control.SandboxLogsPar
 
 func (s *SandboxHandle) Pause(ctx context.Context) error {
 	return s.client.PauseSandbox(ctx, s.SandboxID)
+}
+
+// Kill deletes the sandbox.
+func (s *SandboxHandle) Kill(ctx context.Context) error {
+	return s.Delete(ctx)
 }
 
 func (s *SandboxHandle) Delete(ctx context.Context) error {
@@ -189,6 +284,11 @@ func (s *SandboxHandle) SetTimeout(ctx context.Context, req *control.TimeoutRequ
 
 func (s *SandboxHandle) Connect(ctx context.Context, req *control.ConnectSandboxRequest) (*ConnectSandboxResponse, error) {
 	return s.client.ConnectSandbox(ctx, s.SandboxID, req)
+}
+
+// IsRunning reports whether the sandbox is in an active state.
+func (s *SandboxHandle) IsRunning() bool {
+	return isRunningSandboxState(s.State, s.Status)
 }
 
 func bindSandbox(client *Client, sandbox *control.Sandbox) *Sandbox {
@@ -218,5 +318,14 @@ func bindSandboxHandle(client *Client, sandbox *control.ListedSandbox) *SandboxH
 	return &SandboxHandle{
 		ListedSandbox: sandbox,
 		client:        client,
+	}
+}
+
+func isRunningSandboxState(state, status string) bool {
+	switch strings.ToLower(strings.TrimSpace(firstNonEmpty(state, status))) {
+	case "paused", "stopped", "deleted":
+		return false
+	default:
+		return true
 	}
 }

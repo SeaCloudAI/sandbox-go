@@ -15,7 +15,7 @@ type VolumeMount struct {
 
 // NewSandboxRequest is the request body for creating a sandbox.
 type NewSandboxRequest struct {
-	TemplateID   string            `json:"templateID"`
+	TemplateID   string            `json:"templateID,omitempty"`
 	WorkspaceID  string            `json:"workspaceId,omitempty"`
 	Timeout      *int32            `json:"timeout,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
@@ -26,19 +26,20 @@ type NewSandboxRequest struct {
 
 // Sandbox is returned by create and connect endpoints.
 type Sandbox struct {
-	TemplateID         string    `json:"templateID"`
-	SandboxID          string    `json:"sandboxID"`
-	Alias              string    `json:"alias,omitempty"`
-	ClientID           string    `json:"clientID"`
-	EnvdVersion        string    `json:"envdVersion"`
-	EnvdAccessToken    *string   `json:"envdAccessToken"`
-	EnvdURL            *string   `json:"envdUrl"`
-	TrafficAccessToken *string   `json:"trafficAccessToken"`
-	Namespace          string    `json:"namespace,omitempty"`
-	Status             string    `json:"status"`
-	State              string    `json:"state,omitempty"`
-	StartedAt          time.Time `json:"startedAt"`
-	EndAt              time.Time `json:"endAt"`
+	TemplateID         string     `json:"templateID"`
+	SandboxID          string     `json:"sandboxID"`
+	Alias              string     `json:"alias,omitempty"`
+	ClientID           string     `json:"clientID"`
+	EnvdVersion        string     `json:"envdVersion"`
+	EnvdAccessToken    *string    `json:"envdAccessToken"`
+	EnvdURL            *string    `json:"envdUrl"`
+	TrafficAccessToken *string    `json:"trafficAccessToken"`
+	Namespace          string     `json:"namespace,omitempty"`
+	Status             string     `json:"status"`
+	State              string     `json:"state,omitempty"`
+	StartedAt          time.Time  `json:"startedAt"`
+	ActivatedAt        *time.Time `json:"activatedAt,omitempty"`
+	EndAt              time.Time  `json:"endAt"`
 }
 
 // SandboxDetail is returned by GET /api/v1/sandboxes/:sandboxID.
@@ -60,6 +61,7 @@ type SandboxDetail struct {
 	State           string            `json:"state,omitempty"`
 	VolumeMounts    []VolumeMount     `json:"volumeMounts,omitempty"`
 	Namespace       string            `json:"namespace,omitempty"`
+	ActivatedAt     *time.Time        `json:"activatedAt,omitempty"`
 }
 
 // ListedSandbox is returned by the list endpoint.
@@ -78,6 +80,7 @@ type ListedSandbox struct {
 	State        string            `json:"state,omitempty"`
 	EnvdVersion  string            `json:"envdVersion"`
 	VolumeMounts []VolumeMount     `json:"volumeMounts,omitempty"`
+	ActivatedAt  *time.Time        `json:"activatedAt,omitempty"`
 }
 
 // ListSandboxesParams configures GET /api/v1/sandboxes.

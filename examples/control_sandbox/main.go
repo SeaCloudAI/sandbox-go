@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/SeaCloudAI/sandbox-go"
-	"github.com/SeaCloudAI/sandbox-go/control"
 )
 
 func main() {
@@ -27,27 +26,25 @@ func main() {
 		log.Fatal("SANDBOX_EXAMPLE_TEMPLATE_ID is required")
 	}
 
-	client, err := sandbox.NewClient(
-		baseURL,
-		apiKey,
-	)
+	client, err := sandbox.NewClient(baseURL, apiKey)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	waitReady := true
 	timeout := int32(1800)
-	created, err := client.CreateSandbox(ctx, &control.NewSandboxRequest{
-		TemplateID: templateID,
-		WaitReady:  &waitReady,
-		Timeout:    &timeout,
+	created, err := client.Create(ctx, templateID, &sandbox.CreateOptions{
+		WaitReady: &waitReady,
+		Timeout:   &timeout,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	log.Printf("created sandbox=%s status=%s envd=%v", created.SandboxID, created.Status, created.EnvdURL)
-	if created.EnvdURL != nil {
+	if host, err := created.GetHost(3000); err == nil {
+		log.Printf("sandbox proxy host example=%s", host)
+	} else if created.EnvdURL != nil {
 		runtime, err := created.Runtime()
 		if err != nil {
 			log.Fatal(err)

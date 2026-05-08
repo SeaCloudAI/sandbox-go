@@ -40,20 +40,34 @@ func main() {
 	})
 
 	templateName := fmt.Sprintf("go-full-workflow-%d", time.Now().UnixNano())
-	templateResp, err := client.Build.CreateTemplate(ctx, &build.TemplateCreateRequest{
-		Name: templateName,
-	})
+	buildLogCount := 0
+	built, err := client.BuildTemplate(
+		ctx,
+		sandbox.NewTemplate().
+			FromImage(runtimeBaseImage).
+			RunCmd("mkdir -p /workspace && printf 'hello from go full workflow\\n' >/workspace/built-by-template.txt", nil).
+			SetReadyCmd(sandbox.WaitForFile("/workspace/built-by-template.txt")),
+		templateName,
+		&sandbox.TemplateBuildOptions{
+			PollInterval: 2 * time.Second,
+			OnBuildLog: func(entry sandbox.LogEntry) {
+				buildLogCount++
+				log.Println(entry.String())
+			},
+		},
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	templateID := templateResp.TemplateID
-	buildID := templateResp.BuildID
-	log.Printf("template created: template=%s build=%s", templateID, buildID)
+	templateID := built.TemplateID
+	buildID := built.BuildID
+	log.Printf("build ready: template=%s build=%s status=%s", templateID, buildID, built.Status)
+	log.Printf("build detail: status=%s image=%s", built.Build.Status, built.Build.Image)
 
 	if !keepResources {
 		defer func() {
-			if err := client.Build.DeleteTemplate(ctx, templateID); err != nil {
+			if err := client.DeleteTemplate(ctx, templateID); err != nil {
 				log.Printf("delete template warning: %v", err)
 				return
 			}
@@ -61,46 +75,15 @@ func main() {
 		}()
 	}
 
-	if buildID == "" {
-		requestedBuildID := fmt.Sprintf("build-%x", time.Now().UnixNano())
-		if _, err := client.Build.CreateBuild(
-			ctx,
-			templateID,
-			requestedBuildID,
-			build.NewTemplateBuildBuilder().
-				FromImage(runtimeBaseImage).
-				Run("mkdir -p /workspace && printf 'hello from go full workflow\\n' >/workspace/built-by-template.txt", nil).
-				Request(),
-		); err != nil {
-			log.Fatal(err)
-		}
-		buildID = requestedBuildID
-	}
-	if buildID == "" {
-		log.Fatal("buildID is empty")
-	}
-
-	buildStatus, err := waitForBuildReady(ctx, client.Build, templateID, buildID)
+	buildStatus, err := client.GetTemplateBuildStatus(ctx, templateID, buildID, &sandbox.TemplateBuildStatusOptions{
+		Limit: intPtr(20),
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("build ready: template=%s build=%s status=%s", templateID, buildID, buildStatus.Status)
+	log.Printf("build logs: count=%d last=%q", buildLogCount, latestBuildLog(buildStatus))
 
-	buildDetail, err := client.Build.GetBuild(ctx, templateID, buildID)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("build detail: status=%s image=%s", buildDetail.Status, buildDetail.Image)
-
-	buildLogsLimit := 10
-	buildLogs, err := client.Build.GetBuildLogs(ctx, templateID, buildID, &build.BuildLogsParams{Limit: &buildLogsLimit})
-	if err != nil {
-		log.Printf("build logs warning: %v", err)
-	} else {
-		log.Printf("build logs: count=%d last=%q", len(buildLogs.Logs), latestBuildLog(buildLogs, buildStatus))
-	}
-
-	templateDetail, err := client.Build.GetTemplate(ctx, templateID, nil)
+	templateDetail, err := client.GetTemplate(ctx, templateID, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -108,10 +91,9 @@ func main() {
 
 	waitReady := true
 	timeout := int32(1800)
-	createdSandbox, err := client.CreateSandbox(ctx, &control.NewSandboxRequest{
-		TemplateID: templateID,
-		WaitReady:  &waitReady,
-		Timeout:    &timeout,
+	createdSandbox, err := client.Create(ctx, templateID, &sandbox.CreateOptions{
+		WaitReady: &waitReady,
+		Timeout:   &timeout,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -223,10 +205,7 @@ func logMetricLine(name string, fn func() (string, error)) {
 	log.Printf("%s metrics: %s", name, firstNonEmptyLine(value))
 }
 
-func latestBuildLog(logs *build.BuildLogsResponse, status *build.BuildStatusResponse) string {
-	if logs != nil && len(logs.Logs) > 0 {
-		return logs.Logs[len(logs.Logs)-1].Message
-	}
+func latestBuildLog(status *build.BuildStatusResponse) string {
 	if status != nil && len(status.LogEntries) > 0 {
 		return status.LogEntries[len(status.LogEntries)-1].Message
 	}
@@ -243,32 +222,6 @@ func latestSandboxLog(logs *control.SandboxLogsResponse) string {
 	return logs.Logs[len(logs.Logs)-1].Message
 }
 
-func waitForBuildReady(
-	ctx context.Context,
-	service *build.Service,
-	templateID string,
-	buildID string,
-) (*build.BuildStatusResponse, error) {
-	deadline := time.Now().Add(3 * time.Minute)
-	limit := 20
-	var last *build.BuildStatusResponse
-
-	for time.Now().Before(deadline) {
-		status, err := service.GetBuildStatus(ctx, templateID, buildID, &build.BuildStatusParams{Limit: &limit})
-		if err != nil {
-			return nil, err
-		}
-		last = status
-
-		switch status.Status {
-		case "ready":
-			return status, nil
-		case "error":
-			return nil, fmt.Errorf("build failed: status=%s reason=%v", status.Status, status.Reason)
-		}
-
-		time.Sleep(2 * time.Second)
-	}
-
-	return nil, fmt.Errorf("build did not complete before deadline: %#v", last)
+func intPtr(value int) *int {
+	return &value
 }

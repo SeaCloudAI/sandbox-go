@@ -52,7 +52,7 @@ func (c *Service) Shutdown(ctx context.Context) (*ShutdownResponse, error) {
 }
 
 func (c *Service) CreateSandbox(ctx context.Context, req *NewSandboxRequest) (*Sandbox, error) {
-	if req == nil || strings.TrimSpace(req.TemplateID) == "" {
+	if req == nil {
 		return nil, ErrTemplateEmpty
 	}
 
@@ -178,7 +178,11 @@ func (c *Service) RefreshSandbox(ctx context.Context, sandboxID string, req *Ref
 	}
 
 	path := "/api/v1/sandboxes/" + url.PathEscape(sandboxID) + "/refreshes"
-	_, err := c.DoRequest(ctx, http.MethodPost, path, nil, nil, req, http.StatusNoContent)
+	var body any
+	if req != nil {
+		body = req
+	}
+	_, err := c.DoRequest(ctx, http.MethodPost, path, nil, nil, body, http.StatusNoContent)
 	return err
 }
 

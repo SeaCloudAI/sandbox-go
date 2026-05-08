@@ -410,6 +410,9 @@ func (c *Service) Update(ctx context.Context, req *UpdateRequest, opts *RequestO
 	if err := req.Process.Validate(); err != nil {
 		return err
 	}
+	if req.PTY == nil {
+		return ErrPTYRequired
+	}
 	resp, err := c.doJSON(ctx, http.MethodPost, "/process.Process/Update", nil, req, nil, "", "", withBasicUsername(withConnectRPC(opts)), http.StatusOK)
 	if err != nil {
 		return err

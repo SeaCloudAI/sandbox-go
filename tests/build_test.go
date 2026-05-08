@@ -88,7 +88,7 @@ func TestCreateTemplateUsesGatewayAuthOnly(t *testing.T) {
 		if got := r.Header.Get("X-User-Email"); got != "" {
 			t.Fatalf("unexpected email = %q", got)
 		}
-		if req.Name != "demo" || req.Alias != "demo-alias" || req.TeamID != "project-1" {
+		if req.Name != "demo" {
 			t.Fatalf("request = %#v", req)
 		}
 		if len(req.Tags) != 1 || req.Tags[0] != "v1" {
@@ -121,9 +121,7 @@ func TestCreateTemplateUsesGatewayAuthOnly(t *testing.T) {
 
 	resp, err := service.CreateTemplate(context.Background(), &build.TemplateCreateRequest{
 		Name:     "demo",
-		Alias:    "demo-alias",
 		Tags:     []string{"v1"},
-		TeamID:   "project-1",
 		CPUCount: int32Ptr(2),
 		MemoryMB: int32Ptr(1024),
 	})
@@ -143,13 +141,27 @@ func TestGetTemplateDecodesFullResponse(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"templateID":"tpl-1",
+			"buildID":"build-2",
+			"buildStatus":"ready",
+			"cpuCount":2,
+			"memoryMB":1024,
+			"diskSizeMB":5120,
 			"public":false,
 			"names":["user-1/demo"],
 			"aliases":["demo"],
+			"createdBy":{"id":"user-1","email":"user@example.com"},
 			"createdAt":"2026-01-01T00:00:00Z",
 			"updatedAt":"2026-01-01T00:01:00Z",
 			"lastSpawnedAt":"2026-01-01T00:02:00Z",
 			"spawnCount":3,
+			"buildCount":4,
+			"envdVersion":"sandbox-builder-v1",
+			"visibility":"personal",
+			"image":"harbor.example/demo:latest",
+			"storageType":"nfs",
+			"startCmd":"npm start",
+			"readyCmd":"test -f /tmp/ready",
+			"cloudsinkURL":"https://cloudsink.internal",
 			"builds":[
 				{
 					"buildID":"build-2",
@@ -182,6 +194,24 @@ func TestGetTemplateDecodesFullResponse(t *testing.T) {
 	}
 	if resp.TemplateID != "tpl-1" {
 		t.Fatalf("response = %#v", resp)
+	}
+	if resp.BuildID != "build-2" || resp.BuildStatus != "ready" {
+		t.Fatalf("build fields = %#v", resp)
+	}
+	if resp.CPUCount == nil || *resp.CPUCount != 2 || resp.MemoryMB == nil || *resp.MemoryMB != 1024 {
+		t.Fatalf("resource fields = %#v", resp)
+	}
+	if resp.CreatedBy == nil || resp.CreatedBy.Email != "user@example.com" {
+		t.Fatalf("createdBy = %#v", resp.CreatedBy)
+	}
+	if resp.Visibility != "personal" || resp.StorageType != "nfs" {
+		t.Fatalf("template fields = %#v", resp)
+	}
+	if resp.StartCmd != "npm start" || resp.ReadyCmd != "test -f /tmp/ready" {
+		t.Fatalf("cmd fields = %#v", resp)
+	}
+	if resp.CloudsinkURL != "https://cloudsink.internal" {
+		t.Fatalf("cloudsinkURL = %q", resp.CloudsinkURL)
 	}
 	if len(resp.Builds) != 1 || resp.Builds[0].Status != "ready" {
 		t.Fatalf("builds = %#v", resp.Builds)
@@ -641,6 +671,115 @@ func TestBuildValidationErrors(t *testing.T) {
 			err := tc.fn()
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %v, want substring %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildBoundaryValuesAreAccepted(t *testing.T) {
+	buildID := "build-" + strings.Repeat("a", 57)
+	var calls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.URL.String())
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v1/templates":
+			_, _ = w.Write([]byte(`[]`))
+		case r.URL.Path == "/api/v1/templates/aliases/demo":
+			_, _ = w.Write([]byte(`{"templateID":"tpl-1"}`))
+		case r.URL.Path == "/api/v1/templates/resolve/base":
+			_, _ = w.Write([]byte(`{"templateID":"tpl-base"}`))
+		case r.URL.Path == "/api/v1/templates/tpl-1":
+			_, _ = w.Write([]byte(`{"templateID":"tpl-1"}`))
+		case strings.HasSuffix(r.URL.Path, "/status"):
+			_, _ = w.Write([]byte(`{"buildID":"b","templateID":"tpl-1","status":"building","logs":[],"logEntries":[]}`))
+		case strings.HasSuffix(r.URL.Path, "/logs"):
+			_, _ = w.Write([]byte(`{"logs":[]}`))
+		case strings.Contains(r.URL.Path, "/files/"):
+			_, _ = w.Write([]byte(`{"present":true}`))
+		case strings.Contains(r.URL.Path, "/builds/") && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	service, err := build.NewService(server.URL, "unit-auth-value")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	if _, err := service.ListTemplates(context.Background(), &build.ListTemplatesParams{Limit: 100, Offset: 0}); err != nil {
+		t.Fatalf("ListTemplates boundary: %v", err)
+	}
+	if _, err := service.GetTemplateByAlias(context.Background(), "demo"); err != nil {
+		t.Fatalf("GetTemplateByAlias boundary: %v", err)
+	}
+	if _, err := service.ResolveTemplateRef(context.Background(), "base"); err != nil {
+		t.Fatalf("ResolveTemplateRef boundary: %v", err)
+	}
+	if _, err := service.GetTemplate(context.Background(), "tpl-1", &build.GetTemplateParams{Limit: 100}); err != nil {
+		t.Fatalf("GetTemplate boundary: %v", err)
+	}
+	if _, err := service.CreateBuild(context.Background(), "tpl-1", buildID, nil); err != nil {
+		t.Fatalf("CreateBuild boundary: %v", err)
+	}
+	logsOffset := 0
+	limit := 100
+	if _, err := service.GetBuildStatus(context.Background(), "tpl-1", "build-1", &build.BuildStatusParams{LogsOffset: &logsOffset, Limit: &limit}); err != nil {
+		t.Fatalf("GetBuildStatus boundary: %v", err)
+	}
+	cursor := int64(0)
+	if _, err := service.GetBuildLogs(context.Background(), "tpl-1", "build-1", &build.BuildLogsParams{Cursor: &cursor, Limit: &limit, Direction: "backward", Source: "temporary"}); err != nil {
+		t.Fatalf("GetBuildLogs boundary: %v", err)
+	}
+	if _, err := service.GetBuildFile(context.Background(), "tpl-1", strings.Repeat("a", 64)); err != nil {
+		t.Fatalf("GetBuildFile boundary: %v", err)
+	}
+	if len(calls) != 8 {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestBuildEmptyIdentifiersValidation(t *testing.T) {
+	service, err := build.NewService("https://sandbox-gateway.cloud.seaart.ai", "unit-auth-value")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	testCases := []struct {
+		name string
+		fn   func() error
+	}{
+		{"empty get template", func() error { _, err := service.GetTemplate(context.Background(), " ", nil); return err }},
+		{"empty update template", func() error { _, err := service.UpdateTemplate(context.Background(), " ", nil); return err }},
+		{"empty delete template", func() error { return service.DeleteTemplate(context.Background(), " ") }},
+		{"empty alias", func() error { _, err := service.GetTemplateByAlias(context.Background(), " "); return err }},
+		{"empty ref", func() error { _, err := service.ResolveTemplateRef(context.Background(), " "); return err }},
+		{"empty create build template", func() error { _, err := service.CreateBuild(context.Background(), " ", "build-1", nil); return err }},
+		{"empty create build id", func() error { _, err := service.CreateBuild(context.Background(), "tpl-1", " ", nil); return err }},
+		{"empty get build template", func() error { _, err := service.GetBuild(context.Background(), " ", "build-1"); return err }},
+		{"empty get build id", func() error { _, err := service.GetBuild(context.Background(), "tpl-1", " "); return err }},
+		{"empty get build status template", func() error { _, err := service.GetBuildStatus(context.Background(), " ", "build-1", nil); return err }},
+		{"empty get build logs id", func() error { _, err := service.GetBuildLogs(context.Background(), "tpl-1", " ", nil); return err }},
+		{"empty list builds", func() error { _, err := service.ListBuilds(context.Background(), " "); return err }},
+		{"empty build file template", func() error {
+			_, err := service.GetBuildFile(context.Background(), " ", strings.Repeat("a", 64))
+			return err
+		}},
+		{"empty build file hash", func() error { _, err := service.GetBuildFile(context.Background(), "tpl-1", " "); return err }},
+		{"empty rollback template", func() error {
+			_, err := service.RollbackTemplate(context.Background(), " ", &build.RollbackRequest{BuildID: "build-1"})
+			return err
+		}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.fn(); err == nil {
+				t.Fatal("expected validation error")
 			}
 		})
 	}

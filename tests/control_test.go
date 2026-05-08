@@ -3,10 +3,12 @@ package tests
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/SeaCloudAI/sandbox-go"
 	"github.com/SeaCloudAI/sandbox-go/control"
@@ -52,6 +54,7 @@ func TestCreateSandbox(t *testing.T) {
 			"status":"starting",
 			"state":"starting",
 			"startedAt":"2024-01-01T00:00:00Z",
+			"activatedAt":"2024-01-01T00:00:05Z",
 			"endAt":"2024-01-01T01:00:00Z"
 		}`))
 	}))
@@ -73,12 +76,45 @@ func TestCreateSandbox(t *testing.T) {
 	if resp.SandboxID != "sb-123" {
 		t.Fatalf("sandboxID = %q", resp.SandboxID)
 	}
+	if resp.ActivatedAt == nil || resp.ActivatedAt.Format(time.RFC3339) != "2024-01-01T00:00:05Z" {
+		t.Fatalf("activatedAt = %#v", resp.ActivatedAt)
+	}
 	runtime, err := resp.Runtime()
 	if err != nil {
 		t.Fatalf("Runtime: %v", err)
 	}
 	if got := runtime.BaseURL(); got != "https://sandbox-gateway.cloud.seaart.ai" {
 		t.Fatalf("runtime baseURL = %q", got)
+	}
+}
+
+func TestCreateSandboxAllowsMissingTemplateID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if _, ok := req["templateID"]; ok {
+			t.Fatalf("unexpected templateID in request: %#v", req)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"sandboxID":"sb-234","clientID":"user-1","envdVersion":"atlas-0.1.0","status":"starting","startedAt":"2024-01-01T00:00:00Z","endAt":"2024-01-01T01:00:00Z"}`))
+	}))
+	defer server.Close()
+
+	service, err := control.NewService(server.URL, "unit-auth-value")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	resp, err := service.CreateSandbox(context.Background(), &control.NewSandboxRequest{WaitReady: boolPtr(true)})
+	if err != nil {
+		t.Fatalf("CreateSandbox: %v", err)
+	}
+	if resp.SandboxID != "sb-234" {
+		t.Fatalf("sandboxID = %q", resp.SandboxID)
 	}
 }
 
@@ -250,6 +286,66 @@ func TestAPIErrorDecoding(t *testing.T) {
 	}
 }
 
+func TestAdminControlEndpoints(t *testing.T) {
+	var calls []struct {
+		path   string
+		method string
+		body   map[string]any
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if r.Body != nil && r.ContentLength != 0 {
+			_ = json.NewDecoder(r.Body).Decode(&body)
+		}
+		calls = append(calls, struct {
+			path   string
+			method string
+			body   map[string]any
+		}{path: r.URL.Path, method: r.Method, body: body})
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/admin/pool/status":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"total":10,"warm":2,"active":3,"creating":1,"stopped":1,"deleting":1,"deleted":2,"utilization":0.5},"request_id":"req-pool"}`))
+		case "/admin/rolling/start":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"phase":"running","progress":0.25,"warm_total":4,"warm_updated":1,"duration":"10s"},"request_id":"req-start"}`))
+		case "/admin/rolling/status":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"phase":"running","progress":0.5,"warm_total":4,"warm_updated":2,"duration":"20s"},"request_id":"req-status"}`))
+		case "/admin/rolling/cancel":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"phase":"cancelled","progress":0.5,"warm_total":4,"warm_updated":2,"duration":"21s"},"request_id":"req-cancel"}`))
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	service, err := control.NewService(server.URL, "unit-auth-value")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	pool, err := service.GetPoolStatus(context.Background())
+	if err != nil || pool.RequestID != "req-pool" {
+		t.Fatalf("GetPoolStatus = %#v, %v", pool, err)
+	}
+	started, err := service.StartRollingUpdate(context.Background(), &control.RollingStartRequest{TemplateID: "tpl-1"})
+	if err != nil || started.RequestID != "req-start" {
+		t.Fatalf("StartRollingUpdate = %#v, %v", started, err)
+	}
+	status, err := service.GetRollingUpdateStatus(context.Background())
+	if err != nil || status.RequestID != "req-status" {
+		t.Fatalf("GetRollingUpdateStatus = %#v, %v", status, err)
+	}
+	cancelled, err := service.CancelRollingUpdate(context.Background())
+	if err != nil || cancelled.RequestID != "req-cancel" {
+		t.Fatalf("CancelRollingUpdate = %#v, %v", cancelled, err)
+	}
+	if calls[1].path != "/admin/rolling/start" || calls[1].body["templateId"] != "tpl-1" {
+		t.Fatalf("start call = %#v", calls[1])
+	}
+	if _, err := service.StartRollingUpdate(context.Background(), &control.RollingStartRequest{TemplateID: " "}); err == nil {
+		t.Fatal("expected templateId validation error")
+	}
+}
+
 func TestAPIErrorDecodingStringDetail(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -345,9 +441,22 @@ func TestSystemEndpoints(t *testing.T) {
 }
 
 func TestSandboxLifecyclePaths(t *testing.T) {
-	var calls []string
+	type lifecycleCall struct {
+		Method string
+		Path   string
+		Body   string
+	}
+	var calls []lifecycleCall
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls = append(calls, r.Method+" "+r.URL.String())
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("ReadAll: %v", err)
+		}
+		calls = append(calls, lifecycleCall{
+			Method: r.Method,
+			Path:   r.URL.String(),
+			Body:   string(body),
+		})
 		w.Header().Set("Content-Type", "application/json")
 
 		switch {
@@ -417,6 +526,23 @@ func TestSandboxLifecyclePaths(t *testing.T) {
 
 	if len(calls) != 9 {
 		t.Fatalf("calls = %#v", calls)
+	}
+	var pauseCall *lifecycleCall
+	var refreshNilCall *lifecycleCall
+	for i := range calls {
+		call := &calls[i]
+		if call.Path == "/api/v1/sandboxes/sb-1/pause" {
+			pauseCall = call
+		}
+		if call.Path == "/api/v1/sandboxes/sb-1/refreshes" && call.Body == "" {
+			refreshNilCall = call
+		}
+	}
+	if pauseCall == nil || pauseCall.Body != "" {
+		t.Fatalf("pause call = %#v", pauseCall)
+	}
+	if refreshNilCall == nil {
+		t.Fatalf("refresh nil call not found: %#v", calls)
 	}
 }
 
@@ -512,5 +638,89 @@ func TestValidationThroughPublicAPIs(t *testing.T) {
 	longSearch := strings.Repeat("x", 257)
 	if _, err := service.GetSandboxLogs(context.Background(), "sb", &control.SandboxLogsParams{Search: longSearch}); err == nil {
 		t.Fatal("expected search validation error")
+	}
+}
+
+func TestBoundaryValuesThroughPublicAPIs(t *testing.T) {
+	var calls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("ReadAll: %v", err)
+		}
+		calls = append(calls, r.Method+" "+r.URL.String()+" "+string(body))
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/connect"):
+			_, _ = w.Write([]byte(`{"sandboxID":"sb"}`))
+		case strings.HasSuffix(r.URL.Path, "/heartbeat"):
+			_, _ = w.Write([]byte(`{"code":0,"message":"success","data":{"received":true,"status":"healthy"},"request_id":"req-boundary"}`))
+		case strings.HasSuffix(r.URL.Path, "/logs"):
+			_, _ = w.Write([]byte(`{"logs":[]}`))
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer server.Close()
+
+	service, err := control.NewService(server.URL, "unit-auth-value")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	zero := int64(0)
+	limit := 1000
+	if _, err := service.GetSandboxLogs(context.Background(), "sb", &control.SandboxLogsParams{
+		Cursor:    &zero,
+		Limit:     &limit,
+		Direction: "backward",
+		Search:    strings.Repeat("x", 256),
+	}); err != nil {
+		t.Fatalf("GetSandboxLogs boundary: %v", err)
+	}
+	if _, err := service.ConnectSandbox(context.Background(), "sb", &control.ConnectSandboxRequest{Timeout: 0}); err != nil {
+		t.Fatalf("ConnectSandbox boundary: %v", err)
+	}
+	if err := service.SetSandboxTimeout(context.Background(), "sb", &control.TimeoutRequest{Timeout: 86400}); err != nil {
+		t.Fatalf("SetSandboxTimeout boundary: %v", err)
+	}
+	zeroRefresh := int32(0)
+	if err := service.RefreshSandbox(context.Background(), "sb", &control.RefreshSandboxRequest{Duration: &zeroRefresh}); err != nil {
+		t.Fatalf("RefreshSandbox zero boundary: %v", err)
+	}
+	maxRefresh := int32(3600)
+	if err := service.RefreshSandbox(context.Background(), "sb", &control.RefreshSandboxRequest{Duration: &maxRefresh}); err != nil {
+		t.Fatalf("RefreshSandbox max boundary: %v", err)
+	}
+	if _, err := service.SendHeartbeat(context.Background(), "sb", &control.HeartbeatRequest{Status: "healthy"}); err != nil {
+		t.Fatalf("SendHeartbeat boundary: %v", err)
+	}
+	if len(calls) != 6 {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestEmptySandboxIDValidation(t *testing.T) {
+	service, err := control.NewService("https://sandbox-gateway.cloud.seaart.ai", "unit-auth-value")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if _, err := service.GetSandbox(context.Background(), " "); err == nil {
+		t.Fatal("expected sandbox id validation error")
+	}
+	if err := service.PauseSandbox(context.Background(), " "); err == nil {
+		t.Fatal("expected sandbox id validation error")
+	}
+	if _, err := service.ConnectSandbox(context.Background(), " ", &control.ConnectSandboxRequest{Timeout: 1}); err == nil {
+		t.Fatal("expected sandbox id validation error")
+	}
+	if err := service.SetSandboxTimeout(context.Background(), " ", &control.TimeoutRequest{Timeout: 1}); err == nil {
+		t.Fatal("expected sandbox id validation error")
+	}
+	if err := service.RefreshSandbox(context.Background(), " ", &control.RefreshSandboxRequest{}); err == nil {
+		t.Fatal("expected sandbox id validation error")
+	}
+	if _, err := service.SendHeartbeat(context.Background(), " ", &control.HeartbeatRequest{Status: "healthy"}); err == nil {
+		t.Fatal("expected sandbox id validation error")
 	}
 }

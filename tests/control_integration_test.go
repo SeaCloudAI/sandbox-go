@@ -4,9 +4,12 @@ import (
 	"context"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	sandbox "github.com/SeaCloudAI/sandbox-go"
+	"github.com/SeaCloudAI/sandbox-go/cmd"
 	"github.com/SeaCloudAI/sandbox-go/control"
 	"github.com/SeaCloudAI/sandbox-go/core"
 )
@@ -14,7 +17,7 @@ import (
 func TestIntegrationControlPlane(t *testing.T) {
 	baseURL, apiKey, templateID := integrationConfig(t)
 
-	service, err := control.NewService(baseURL, apiKey)
+	service, err := control.NewService(baseURL, apiKey, core.WithTimeout(180*time.Second))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -112,6 +115,9 @@ func TestIntegrationControlPlane(t *testing.T) {
 		if err := service.RefreshSandbox(ctx, sandboxID, &control.RefreshSandboxRequest{Duration: &refresh}); err != nil {
 			t.Fatalf("RefreshSandbox: %v", err)
 		}
+		if err := service.RefreshSandbox(ctx, sandboxID, nil); err != nil {
+			t.Fatalf("RefreshSandbox nil: %v", err)
+		}
 
 		logs, err := service.GetSandboxLogs(ctx, sandboxID, &control.SandboxLogsParams{Limit: intPtr(10)})
 		if err != nil {
@@ -131,6 +137,29 @@ func TestIntegrationControlPlane(t *testing.T) {
 		}
 		if connected.StatusCode != 200 && connected.StatusCode != 201 {
 			t.Fatalf("connect status = %d", connected.StatusCode)
+		}
+		if connected.Sandbox.EnvdURL != nil && strings.TrimSpace(*connected.Sandbox.EnvdURL) != "" {
+			client, err := sandbox.NewClient(baseURL, apiKey, core.WithTimeout(180*time.Second))
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			runtime, err := client.RuntimeFromSandbox(connected.Sandbox)
+			if err != nil {
+				t.Fatalf("RuntimeFromSandbox: %v", err)
+			}
+			run, err := runtime.Run(ctx, &cmd.AgentRunRequest{
+				Cmd:  "sh",
+				Args: []string{"-lc", "echo resumed-go"},
+			}, nil)
+			if err != nil {
+				t.Fatalf("Run after resume: %v", err)
+			}
+			if run.ExitCode != 0 {
+				t.Fatalf("run exit code = %d", run.ExitCode)
+			}
+			if !strings.Contains(run.Stdout, "resumed-go") {
+				t.Fatalf("stdout = %q", run.Stdout)
+			}
 		}
 	})
 }
