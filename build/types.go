@@ -17,36 +17,35 @@ type DirectBuildResponse struct {
 	ImageFullName string `json:"imageFullName"`
 }
 
-type PublicSeacloudTemplateExtensions struct {
-	BaseTemplateID string            `json:"baseTemplateID,omitempty"`
-	Visibility     string            `json:"visibility,omitempty"`
-	Envs           map[string]string `json:"envs,omitempty"`
-	StorageType    string            `json:"storageType,omitempty"`
-	StorageSizeGB  *int32            `json:"storageSizeGB,omitempty"`
-}
-
 type PublicTemplateExtensions struct {
-	Seacloud *PublicSeacloudTemplateExtensions `json:"seacloud,omitempty"`
-}
-
-type SeacloudTemplateExtensions struct {
-	BaseTemplateID string            `json:"baseTemplateID,omitempty"`
-	Visibility     string            `json:"visibility,omitempty"`
-	Envs           map[string]string `json:"envs,omitempty"`
-	StorageType    string            `json:"storageType,omitempty"`
-	StorageSizeGB  *int32            `json:"storageSizeGB,omitempty"`
-	Image          string            `json:"image,omitempty"`
-	ImageSource    string            `json:"imageSource,omitempty"`
-	ProjectID      string            `json:"projectID,omitempty"`
-	TTLSeconds     *int32            `json:"ttlSeconds,omitempty"`
-	Port           *int32            `json:"port,omitempty"`
-	RuntimeMode    string            `json:"runtimeMode,omitempty"`
-	StartCmd       string            `json:"startCmd,omitempty"`
-	ReadyCmd       string            `json:"readyCmd,omitempty"`
+	BaseTemplateID string                `json:"baseTemplateID,omitempty"`
+	Visibility     string                `json:"visibility,omitempty"`
+	Envs           map[string]string     `json:"envs,omitempty"`
+	StorageType    string                `json:"storageType,omitempty"`
+	StorageSizeGB  *int32                `json:"storageSizeGB,omitempty"`
+	VolumeMounts   []TemplateVolumeMount `json:"volumeMounts,omitempty"`
 }
 
 type TemplateExtensions struct {
-	Seacloud *SeacloudTemplateExtensions `json:"seacloud,omitempty"`
+	BaseTemplateID string                `json:"baseTemplateID,omitempty"`
+	Visibility     string                `json:"visibility,omitempty"`
+	Envs           map[string]string     `json:"envs,omitempty"`
+	StorageType    string                `json:"storageType,omitempty"`
+	StorageSizeGB  *int32                `json:"storageSizeGB,omitempty"`
+	VolumeMounts   []TemplateVolumeMount `json:"volumeMounts,omitempty"`
+	Image          string                `json:"image,omitempty"`
+	ImageSource    string                `json:"imageSource,omitempty"`
+	ProjectID      string                `json:"projectID,omitempty"`
+	TTLSeconds     *int32                `json:"ttlSeconds,omitempty"`
+	Port           *int32                `json:"port,omitempty"`
+	RuntimeMode    string                `json:"runtimeMode,omitempty"`
+	StartCmd       string                `json:"startCmd,omitempty"`
+	ReadyCmd       string                `json:"readyCmd,omitempty"`
+}
+
+type TemplateVolumeMount struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
 }
 
 // TemplateCreateRequest is the request body for POST /api/v1/templates.

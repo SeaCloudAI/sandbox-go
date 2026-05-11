@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -27,6 +28,28 @@ func newClient(t *testing.T, baseURL string) *sandbox.Client {
 		t.Fatalf("NewClient: %v", err)
 	}
 	return client
+}
+
+func encodeProcessFrames(frames []map[string]any) ([]byte, error) {
+	var payload bytes.Buffer
+	for _, frame := range frames {
+		data, err := json.Marshal(frame)
+		if err != nil {
+			return nil, err
+		}
+		if err := payload.WriteByte(0); err != nil {
+			return nil, err
+		}
+		var size [4]byte
+		binary.BigEndian.PutUint32(size[:], uint32(len(data)))
+		if _, err := payload.Write(size[:]); err != nil {
+			return nil, err
+		}
+		if _, err := payload.Write(data); err != nil {
+			return nil, err
+		}
+	}
+	return payload.Bytes(), nil
 }
 
 func TestFacadeCreateSandbox(t *testing.T) {
@@ -257,6 +280,300 @@ func TestFacadeSandboxLifecycleHelpers(t *testing.T) {
 	}
 }
 
+func TestFacadeRunCode(t *testing.T) {
+	startCount := 0
+	sendInputCount := 0
+	signalCount := 0
+	removeCount := 0
+	payload1 := "__SEACLOUD_CODE_CONTEXT__" + `{"results":[{"text":"1","json":1}],"logs":{"stdout":["hello\n"],"stderr":[]},"executionCount":1}` + "\n"
+	payload2 := "__SEACLOUD_CODE_CONTEXT__" + `{"results":[{"text":"2","json":2}],"logs":{"stdout":[],"stderr":["warn\n"]},"executionCount":2}` + "\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/sandboxes":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{
+				"templateID":"base",
+				"sandboxID":"sb-code",
+				"clientID":"user-1",
+				"envdVersion":"atlas-0.1.0",
+				"envdAccessToken":"unit-runtime-auth",
+				"envdUrl":"http://` + r.Host + `/runtime",
+				"status":"running",
+				"state":"running",
+				"startedAt":"2024-01-01T00:00:00Z",
+				"endAt":"2024-01-01T01:00:00Z"
+			}`))
+		case r.URL.Path == "/runtime/file" && r.Method == http.MethodPost:
+			if !strings.Contains(r.URL.RawQuery, "path=%2Froot%2Fworkspace%2F.seacloud-code-interpreter-") {
+				if !strings.Contains(r.URL.RawQuery, "path=%2Froot%2Fworkspace%2F.seacloud-code-context-") {
+					t.Fatalf("query = %q", r.URL.RawQuery)
+				}
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/runtime/process.Process/Start":
+			startCount++
+			w.Header().Set("Content-Type", "application/connect+json")
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode start request: %v", err)
+			}
+			process := req["process"].(map[string]any)
+			if process["cmd"] != "python3" {
+				t.Fatalf("cmd = %#v", process["cmd"])
+			}
+			frames, err := encodeProcessFrames([]map[string]any{
+				func() map[string]any {
+					if startCount == 1 {
+						return map[string]any{"event": map[string]any{"start": map[string]any{"pid": 55}}}
+					}
+					return map[string]any{"event": map[string]any{"start": map[string]any{"pid": 56}}}
+				}(),
+				func() map[string]any {
+					if startCount == 1 {
+						return map[string]any{"event": map[string]any{"data": map[string]any{
+							"stdout": base64.StdEncoding.EncodeToString([]byte(payload1)),
+						}}}
+					}
+					return map[string]any{"event": map[string]any{"end": map[string]any{"exited": false, "status": "running", "error": nil}}}
+				}(),
+				func() map[string]any {
+					if startCount == 1 {
+						return map[string]any{"event": map[string]any{"data": map[string]any{
+							"stdout": base64.StdEncoding.EncodeToString([]byte(payload2)),
+						}}}
+					}
+					return map[string]any{"event": map[string]any{"end": map[string]any{"exited": false, "status": "running", "error": nil}}}
+				}(),
+			})
+			if err != nil {
+				t.Fatalf("encodeProcessFrames: %v", err)
+			}
+			_, _ = w.Write(frames)
+		case r.URL.Path == "/runtime/process.Process/SendInput":
+			sendInputCount++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		case r.URL.Path == "/runtime/process.Process/SendSignal":
+			signalCount++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		case r.URL.Path == "/runtime/filesystem.Filesystem/Remove":
+			removeCount++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newClient(t, server.URL)
+	created, err := client.Create(context.Background(), "base", nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	stdout := make([]sandbox.CodeOutputChunk, 0, 2)
+	stderr := make([]sandbox.CodeOutputChunk, 0, 2)
+	results := make([]sandbox.CodeExecutionResult, 0, 2)
+	errors := make([]sandbox.CodeExecutionError, 0, 1)
+	timeout := 30
+	execution1, err := created.RunCode(context.Background(), "print(42)", &sandbox.RunCodeOptions{
+		CWD:     "/workspace",
+		Timeout: &timeout,
+		OnStdout: func(chunk sandbox.CodeOutputChunk) {
+			stdout = append(stdout, chunk)
+		},
+		OnStderr: func(chunk sandbox.CodeOutputChunk) {
+			stderr = append(stderr, chunk)
+		},
+		OnResult: func(result sandbox.CodeExecutionResult) {
+			results = append(results, result)
+		},
+		OnError: func(err sandbox.CodeExecutionError) {
+			errors = append(errors, err)
+		},
+	})
+	if err != nil {
+		t.Fatalf("RunCode 1: %v", err)
+	}
+	execution2, err := created.RunCode(context.Background(), "x + 1", &sandbox.RunCodeOptions{
+		OnStdout: func(chunk sandbox.CodeOutputChunk) {
+			stdout = append(stdout, chunk)
+		},
+		OnStderr: func(chunk sandbox.CodeOutputChunk) {
+			stderr = append(stderr, chunk)
+		},
+		OnResult: func(result sandbox.CodeExecutionResult) {
+			results = append(results, result)
+		},
+		OnError: func(err sandbox.CodeExecutionError) {
+			errors = append(errors, err)
+		},
+	})
+	if err != nil {
+		t.Fatalf("RunCode 2: %v", err)
+	}
+	if execution1.Text() != "1" || execution2.Text() != "2" {
+		t.Fatalf("executions = %#v %#v", execution1, execution2)
+	}
+	if len(execution1.Results) != 1 || execution1.Results[0].Text != "1" {
+		t.Fatalf("results 1 = %#v", execution1.Results)
+	}
+	if len(execution2.Results) != 1 || execution2.Results[0].Text != "2" {
+		t.Fatalf("results 2 = %#v", execution2.Results)
+	}
+	if len(stdout) != 1 || stdout[0].Line != "hello\n" {
+		t.Fatalf("stdout = %#v", stdout)
+	}
+	if len(stderr) != 1 || stderr[0].Line != "warn\n" {
+		t.Fatalf("stderr = %#v", stderr)
+	}
+	if len(results) != 2 || results[0].Text != "1" || results[1].Text != "2" {
+		t.Fatalf("streamed results = %#v", results)
+	}
+	if len(errors) != 0 {
+		t.Fatalf("errors = %#v", errors)
+	}
+	if startCount != 1 || sendInputCount != 2 {
+		t.Fatalf("context counts = start:%d send:%d", startCount, sendInputCount)
+	}
+	codeContext, err := created.CreateCodeContext(context.Background(), &sandbox.CodeContextCreateOptions{
+		CWD:      "/workspace",
+		Language: "python",
+	})
+	if err != nil {
+		t.Fatalf("CreateCodeContext: %v", err)
+	}
+	if len(created.ListCodeContexts()) != 1 {
+		t.Fatalf("list contexts = %#v", created.ListCodeContexts())
+	}
+	if _, err := created.RestartCodeContext(context.Background(), codeContext); err != nil {
+		t.Fatalf("RestartCodeContext: %v", err)
+	}
+	if err := created.RemoveCodeContext(context.Background(), codeContext.ContextID); err != nil {
+		t.Fatalf("RemoveCodeContext: %v", err)
+	}
+	if startCount != 3 || signalCount != 2 || removeCount != 2 {
+		t.Fatalf("lifecycle counts = start:%d signal:%d remove:%d", startCount, signalCount, removeCount)
+	}
+}
+
+func TestFacadeNonPythonCodeContext(t *testing.T) {
+	startCount := 0
+	removeCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/sandboxes":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{
+				"templateID":"base",
+				"sandboxID":"sb-stateless-context",
+				"clientID":"user-1",
+				"envdVersion":"atlas-0.1.0",
+				"envdAccessToken":"unit-runtime-auth",
+				"envdUrl":"http://` + r.Host + `/runtime",
+				"status":"running",
+				"state":"running",
+				"startedAt":"2024-01-01T00:00:00Z",
+				"endAt":"2024-01-01T01:00:00Z"
+			}`))
+		case r.URL.Path == "/runtime/file" && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/runtime/process.Process/Start":
+			startCount++
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode start request: %v", err)
+			}
+			process := req["process"].(map[string]any)
+			if process["cmd"] != "bash" {
+				t.Fatalf("cmd = %#v", process["cmd"])
+			}
+			if process["cwd"] != "/workspace/app" {
+				t.Fatalf("cwd = %#v", process["cwd"])
+			}
+			if req["timeout"] != float64(12) {
+				t.Fatalf("timeout = %#v", req["timeout"])
+			}
+			frames, err := encodeProcessFrames([]map[string]any{
+				{"event": map[string]any{"start": map[string]any{"pid": 88}}},
+				{"event": map[string]any{"data": map[string]any{
+					"stdout": base64.StdEncoding.EncodeToString([]byte("hi\n")),
+				}}},
+				{"event": map[string]any{"end": map[string]any{"exited": true, "status": "exited", "error": nil}}},
+			})
+			if err != nil {
+				t.Fatalf("encodeProcessFrames: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/connect+json")
+			_, _ = w.Write(frames)
+		case r.URL.Path == "/runtime/filesystem.Filesystem/Remove":
+			removeCount++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		case r.URL.Path == "/api/v1/sandboxes/sb-stateless-context" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newClient(t, server.URL)
+	created, err := client.Create(context.Background(), "base", nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	timeout := 12
+	codeContext, err := created.CreateCodeContext(context.Background(), &sandbox.CodeContextCreateOptions{
+		CWD:      "/workspace/app",
+		Language: "bash",
+		Timeout:  &timeout,
+	})
+	if err != nil {
+		t.Fatalf("CreateCodeContext: %v", err)
+	}
+	if codeContext.Language != "bash" {
+		t.Fatalf("context = %#v", codeContext)
+	}
+
+	execution, err := created.RunCode(context.Background(), "echo hi", &sandbox.RunCodeOptions{
+		Context: codeContext,
+	})
+	if err != nil {
+		t.Fatalf("RunCode: %v", err)
+	}
+	if execution.Text() != "hi\n" {
+		t.Fatalf("execution = %#v", execution)
+	}
+	if len(created.ListCodeContexts()) != 1 {
+		t.Fatalf("list contexts = %#v", created.ListCodeContexts())
+	}
+	restarted, err := created.RestartCodeContext(context.Background(), codeContext)
+	if err != nil {
+		t.Fatalf("RestartCodeContext: %v", err)
+	}
+	if restarted.ContextID != codeContext.ContextID {
+		t.Fatalf("restarted = %#v", restarted)
+	}
+	if err := created.RemoveCodeContext(context.Background(), codeContext); err != nil {
+		t.Fatalf("RemoveCodeContext: %v", err)
+	}
+	if len(created.ListCodeContexts()) != 0 {
+		t.Fatalf("list contexts after remove = %#v", created.ListCodeContexts())
+	}
+	if startCount != 1 || removeCount != 2 {
+		t.Fatalf("counts = start:%d remove:%d", startCount, removeCount)
+	}
+	if err := created.Delete(context.Background()); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+}
+
 func TestTemplateFacadeBuildsAndPolls(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -274,9 +591,8 @@ func TestTemplateFacadeBuildsAndPolls(t *testing.T) {
 			if !ok {
 				t.Fatalf("extensions = %#v", req["extensions"])
 			}
-			seacloud, ok := extensions["seacloud"].(map[string]any)
-			if !ok || seacloud["baseTemplateID"] != "tpl-base-1" {
-				t.Fatalf("extensions.seacloud = %#v", extensions["seacloud"])
+			if extensions["baseTemplateID"] != "tpl-base-1" {
+				t.Fatalf("extensions = %#v", extensions)
 			}
 			_, _ = w.Write([]byte(`{"templateID":"tpl-1","buildID":"server-build-id","public":false,"names":["demo"],"tags":["v1"],"aliases":[]}`))
 		case strings.Contains(r.URL.Path, "/builds/") && r.Method == http.MethodPost:
@@ -390,9 +706,8 @@ func TestTemplateFacadeBuildForwardsHighLevelOptions(t *testing.T) {
 			if !ok {
 				t.Fatalf("extensions = %#v", req["extensions"])
 			}
-			seacloud, ok := extensions["seacloud"].(map[string]any)
-			if !ok || seacloud["baseTemplateID"] != "tpl-base-1" {
-				t.Fatalf("extensions.seacloud = %#v", extensions["seacloud"])
+			if extensions["baseTemplateID"] != "tpl-base-1" {
+				t.Fatalf("extensions = %#v", extensions)
 			}
 			_, _ = w.Write([]byte(`{"templateID":"tpl-options","buildID":"server-build-id","public":false,"names":["demo"],"tags":["v1","latest"],"aliases":[]}`))
 		case strings.Contains(r.URL.Path, "/builds/") && r.Method == http.MethodPost:
@@ -666,6 +981,7 @@ func TestTemplateHelpersSupportSkipCacheCopyItemsRemoveAndRename(t *testing.T) {
 			Src:       "package.json",
 			Dest:      "/app/",
 			FilesHash: strings.Repeat("a", 64),
+			User:      "app",
 		}}).
 		Remove([]string{"/tmp/cache"}, &sandbox.TemplateRemoveOptions{
 			TemplatePathOptions: sandbox.TemplatePathOptions{User: "root", Force: &force},
@@ -676,17 +992,20 @@ func TestTemplateHelpersSupportSkipCacheCopyItemsRemoveAndRename(t *testing.T) {
 		}).
 		Request()
 
-	if len(req.Steps) != 3 {
+	if len(req.Steps) != 4 {
 		t.Fatalf("steps = %#v", req.Steps)
 	}
 	if req.Steps[0].Type != "COPY" || req.Steps[0].Force == nil || !*req.Steps[0].Force {
 		t.Fatalf("copy step = %#v", req.Steps[0])
 	}
-	if !strings.Contains(req.Steps[1].Args[0], "rm") || req.Steps[1].Force == nil || !*req.Steps[1].Force {
-		t.Fatalf("remove step = %#v", req.Steps[1])
+	if !strings.Contains(req.Steps[1].Args[0], "chown") || !strings.Contains(req.Steps[1].Args[0], "app") || req.Steps[1].Force == nil || !*req.Steps[1].Force {
+		t.Fatalf("chown step = %#v", req.Steps[1])
 	}
-	if !strings.Contains(req.Steps[2].Args[0], "mv") || req.Steps[2].Force == nil || !*req.Steps[2].Force {
-		t.Fatalf("rename step = %#v", req.Steps[2])
+	if !strings.Contains(req.Steps[2].Args[0], "rm") || req.Steps[2].Force == nil || !*req.Steps[2].Force {
+		t.Fatalf("remove step = %#v", req.Steps[2])
+	}
+	if !strings.Contains(req.Steps[3].Args[0], "mv") || req.Steps[3].Force == nil || !*req.Steps[3].Force {
+		t.Fatalf("rename step = %#v", req.Steps[3])
 	}
 }
 
@@ -1383,7 +1702,7 @@ func TestTemplateBuildAutoUploadsLocalCopySources(t *testing.T) {
 	client := newClient(t, server.URL)
 	_, err := client.BuildTemplate(context.Background(), sandbox.NewTemplate().
 		FromImage("docker.io/library/alpine:3.20").
-		Copy(source, "/app/", nil),
+		Copy(source, "/app/", &sandbox.TemplateCopyOptions{User: "app"}),
 		"demo:auto-copy",
 		&sandbox.TemplateBuildOptions{
 			PollInterval: 0,
@@ -1409,6 +1728,10 @@ func TestTemplateBuildAutoUploadsLocalCopySources(t *testing.T) {
 	}
 	if !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(first["filesHash"].(string)) {
 		t.Fatalf("filesHash = %#v", first["filesHash"])
+	}
+	second := steps[1].(map[string]any)
+	if second["type"].(string) != "RUN" || !strings.Contains(second["args"].([]any)[0].(string), "chown") || !strings.Contains(second["args"].([]any)[0].(string), "app") {
+		t.Fatalf("ownership step = %#v", second)
 	}
 }
 

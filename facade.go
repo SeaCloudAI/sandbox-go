@@ -23,37 +23,25 @@ import (
 
 	"github.com/SeaCloudAI/sandbox-go/build"
 	"github.com/SeaCloudAI/sandbox-go/cmd"
-	"github.com/SeaCloudAI/sandbox-go/control"
 	"github.com/SeaCloudAI/sandbox-go/core"
 )
 
 const autoCopyPrefix = "__auto_copy__:"
 
-type GatewayConfig struct {
-	BaseURL   string
-	APIKey    string
-	ProjectID string
-	Timeout   time.Duration
-}
-
 type CreateOptions struct {
-	GatewayConfig
-	TemplateID   string
-	WorkspaceID  string
-	Timeout      *int32
-	Metadata     map[string]string
-	EnvVars      map[string]string
-	VolumeMounts []control.VolumeMount
-	WaitReady    *bool
+	TemplateID  string
+	WorkspaceID string
+	Timeout     *int32
+	Metadata    map[string]string
+	EnvVars     map[string]string
+	WaitReady   *bool
 }
 
 type ConnectOptions struct {
-	GatewayConfig
 	Timeout int32
 }
 
 type ListOptions struct {
-	GatewayConfig
 	Metadata  map[string]string
 	State     []string
 	Limit     int
@@ -563,6 +551,7 @@ type TemplateCopyOptions struct {
 	ForceUpload     bool
 	Mode            *int
 	ResolveSymlinks bool
+	User            string
 }
 
 // TemplateCopyItem describes one COPY helper entry with per-item options.
@@ -574,6 +563,7 @@ type TemplateCopyItem struct {
 	ForceUpload     bool
 	Mode            *int
 	ResolveSymlinks bool
+	User            string
 }
 
 type TemplatePathOptions struct {
@@ -629,7 +619,6 @@ type TemplateBunInstallOptions struct {
 }
 
 type TemplateBuildOptions struct {
-	GatewayConfig
 	Tags           []string
 	BaseTemplateID string
 	CPUCount       *int32
@@ -650,7 +639,6 @@ type TemplateBuildInfo struct {
 }
 
 type TemplateListOptions struct {
-	GatewayConfig
 	Visibility string
 	TeamID     string
 	Limit      int
@@ -658,13 +646,11 @@ type TemplateListOptions struct {
 }
 
 type TemplateGetOptions struct {
-	GatewayConfig
 	Limit     int
 	NextToken string
 }
 
 type TemplateBuildStatusOptions struct {
-	GatewayConfig
 	LogsOffset *int
 	Limit      *int
 	Level      string
@@ -867,6 +853,9 @@ func (t *Template) Copy(src, dest string, opts *TemplateCopyOptions) *Template {
 		filesHash = t.registerAutoCopy(src, opts)
 	}
 	t.builder.Copy(src, dest, filesHash, &build.CopyStepOptions{Force: t.stepForce(nil)})
+	if strings.TrimSpace(opts.User) != "" {
+		t.builder.Run(buildCopyOwnershipCommand(dest, opts.User), &build.CommandStepOptions{Force: t.stepForce(nil)})
+	}
 	return t
 }
 
@@ -883,6 +872,7 @@ func (t *Template) CopyItems(items []TemplateCopyItem) *Template {
 				ForceUpload:     item.ForceUpload,
 				Mode:            item.Mode,
 				ResolveSymlinks: item.ResolveSymlinks,
+				User:            item.User,
 			})
 		}
 	}
@@ -1061,9 +1051,7 @@ func buildTemplateWithService(
 	var extensions *build.PublicTemplateExtensions
 	if strings.TrimSpace(opts.BaseTemplateID) != "" {
 		extensions = &build.PublicTemplateExtensions{
-			Seacloud: &build.PublicSeacloudTemplateExtensions{
-				BaseTemplateID: strings.TrimSpace(opts.BaseTemplateID),
-			},
+			BaseTemplateID: strings.TrimSpace(opts.BaseTemplateID),
 		}
 	}
 	created, err := buildService.CreateTemplate(ctx, &build.TemplateCreateRequest{
@@ -1162,6 +1150,9 @@ func listTemplatesWithService(
 	buildService *build.Service,
 	opts *TemplateListOptions,
 ) ([]build.ListedTemplate, error) {
+	if opts == nil {
+		opts = &TemplateListOptions{}
+	}
 	return buildService.ListTemplates(ctx, &build.ListTemplatesParams{
 		Visibility: opts.Visibility,
 		TeamID:     opts.TeamID,
@@ -1176,6 +1167,9 @@ func getTemplateWithService(
 	ref string,
 	opts *TemplateGetOptions,
 ) (*build.TemplateResponse, error) {
+	if opts == nil {
+		opts = &TemplateGetOptions{}
+	}
 	templateID := strings.TrimSpace(ref)
 	if !strings.HasPrefix(templateID, "tpl-") {
 		resolved, err := buildService.ResolveTemplateRef(ctx, templateID)
@@ -1220,6 +1214,9 @@ func getTemplateBuildStatusWithService(
 	templateID, buildID string,
 	opts *TemplateBuildStatusOptions,
 ) (*build.BuildStatusResponse, error) {
+	if opts == nil {
+		opts = &TemplateBuildStatusOptions{}
+	}
 	return buildService.GetBuildStatus(ctx, strings.TrimSpace(templateID), strings.TrimSpace(buildID), &build.BuildStatusParams{
 		LogsOffset: opts.LogsOffset,
 		Limit:      opts.Limit,
@@ -1468,6 +1465,10 @@ func buildMakeDirCommand(path string, opts *TemplateMakeDirOptions) string {
 	}
 	args = append(args, path)
 	return maybeRunAsUser(shellJoin(args), templateMakeDirUser(opts))
+}
+
+func buildCopyOwnershipCommand(path, user string) string {
+	return shellJoin([]string{"chown", "-R", strings.TrimSpace(user), strings.TrimSpace(path)})
 }
 
 func buildMakeSymlinkCommand(src, dest string, opts *TemplateMakeSymlinkOptions) string {
@@ -2266,7 +2267,7 @@ func (h *CommandHandle) Wait(ctx context.Context) (*CommandWaitResult, error) {
 		}
 	}
 	if h.CmdID != "" {
-		cmdResult, err := h.runtime.GetResult(ctx, &cmd.GetResultRequest{CmdID: h.CmdID}, nil)
+		cmdResult, err := getResultWithRetry(ctx, h.runtime, h.CmdID)
 		if err != nil {
 			return nil, err
 		}

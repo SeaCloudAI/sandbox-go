@@ -134,9 +134,7 @@ func TestIntegrationBuildPlane(t *testing.T) {
 
 		updated, err := service.UpdateTemplate(ctx, templateID, &build.TemplateUpdateRequest{
 			Extensions: &build.PublicTemplateExtensions{
-				Seacloud: &build.PublicSeacloudTemplateExtensions{
-					Envs: map[string]string{"SDK_TEST": "1"},
-				},
+				Envs: map[string]string{"SDK_TEST": "1"},
 			},
 		})
 		if err != nil {

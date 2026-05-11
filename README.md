@@ -12,10 +12,10 @@ go get github.com/SeaCloudAI/sandbox-go
 
 Preferred public API:
 
-- initialize once: `sandbox.NewClient(baseURL, apiKey, opts...)`
-- sandbox lifecycle through the root client: `client.Create`, `client.Connect`, `client.List`
+- preferred sandbox entrypoint: package-level helpers such as `sandbox.Create(...)`, `sandbox.Connect(...)`, and `sandbox.List(...)`, which read gateway config from env by default
+- optional advanced client: `sandbox.NewClientFromEnv(...)` for custom control/build workflows
 - sandbox runtime modules from the returned object: `created.Commands()`, `created.Files()`, `created.Git()`, `created.Pty()`
-- template builder through the root client: `sandbox.NewTemplate()` plus `client.BuildTemplate(...)`
+- preferred template entrypoint: package-level helpers such as `sandbox.BuildTemplate(...)`, `sandbox.BuildTemplateInBackground(...)`, `sandbox.ListTemplates(...)`, and `sandbox.GetTemplate(...)`
 - low-level build plane via `client.Build`
 - raw runtime helper: `createdSandbox.Runtime()` or `client.RuntimeFromSandbox(createdSandbox)`
 
@@ -24,7 +24,9 @@ Preferred public API:
 ## E2B Alignment
 
 - Supported alignment target: sandbox lifecycle, files, commands, git, PTY, and the high-level template DSL are designed to follow the same public workflow as `e2b-docs/sdk`.
+- Code interpreter alignment: `sandbox.RunCode(...)` is available for `python`, `javascript`, `typescript`, `bash`, `r`, and `java`. Python results support `display(...)`, last-expression capture, tables, Matplotlib PNG/chart payloads, a persistent default execution context, and stateful `CreateCodeContext/ListCodeContexts/RestartCodeContext/RemoveCodeContext` helpers. Non-Python contexts use the same API surface but currently behave as stateless execution profiles.
 - Known unsupported area: snapshot APIs are not exposed because the underlying platform does not support them yet.
+- Known partial area: only Python contexts are stateful. Non-Python contexts still execute in isolated one-shot processes.
 - Go-specific note: the SDK aims for semantic equivalence rather than identical hand feel. Method names, `context.Context`, and `(..., error)` returns stay Go-native on purpose.
 - Runtime compatibility note: the SDK normalizes a few runtime-specific quirks so the high-level behavior stays E2B-like, such as missing-process `Kill()` results and PTY reconnect output framing.
 
@@ -32,18 +34,16 @@ Preferred public API:
 
 Use environment variables for gateway configuration in all examples and quick starts:
 
-- `SEACLOUD_BASE_URL`: SeaCloudAI gateway entrypoint
-- `SEACLOUD_API_KEY`: API key used for gateway routing and authentication
+- `E2B_DOMAIN`: preferred gateway entrypoint
+- `E2B_API_KEY`: preferred API key
 - `SEACLOUD_PROJECT_ID`: optional project routing key for project-scoped gateways
-- `SEACLOUD_TEMPLATE_ID`: sandbox template identifier or official template type for your target environment
 
 Set them once in your shell:
 
 ```bash
-export SEACLOUD_BASE_URL="https://sandbox-gateway.cloud.seaart.ai"
-export SEACLOUD_API_KEY="..."
+export E2B_DOMAIN="https://sandbox-gateway.cloud.seaart.ai"
+export E2B_API_KEY="..."
 export SEACLOUD_PROJECT_ID="project-..."
-export SEACLOUD_TEMPLATE_ID="tpl-..."
 ```
 
 Default production gateway:
@@ -52,15 +52,16 @@ Default production gateway:
 https://sandbox-gateway.cloud.seaart.ai
 ```
 
-Use `SEACLOUD_TEMPLATE_ID` for production integrations. It can be either a concrete template ID such as `tpl-...` or a stable official template type such as `base`, `claude`, or `codex` when your environment publishes those official templates.
+High-level create helpers default to the official `base` template when you do not pass a template explicitly. For production integrations, prefer passing a concrete template ID such as `tpl-...` or a stable official template type such as `base`, `code-interpreter`, `claude`, or `codex` when your environment publishes those official templates.
 
 ## Production Readiness
 
-- Initialize exactly one root client per process and reuse it.
+- Package-level helpers are fine for simple env-first flows. For repeated low-level or mixed control/build workflows, initialize exactly one root client and reuse it.
 - Treat every quick start as creating billable or quota-bound resources unless it explicitly cleans them up.
 - Prefer explicit template references from configuration over hardcoded example values.
-- In SeaCloudAI environments, prefer official template types such as `base`, `claude`, or `codex` when you want a stable platform-managed entrypoint.
-- Use longer client timeouts for `waitReady` flows and image builds.
+- In SeaCloudAI environments, prefer official template types such as `base`, `code-interpreter`, `claude`, or `codex` when you want a stable platform-managed entrypoint.
+- Template semantics matter: `base` is the minimal runtime template for lifecycle, files, commands, git, and PTY. It does not imply a multi-language execution environment. Use `code-interpreter` for `RunCode(...)`, and use agent-specific templates such as `claude` or `codex` when you need those CLIs preinstalled.
+- Use longer SDK HTTP timeouts for `waitReady` flows and image builds.
 - Derive runtime access from sandbox responses instead of storing runtime endpoints or tokens in config.
 
 ## Compatibility
@@ -69,6 +70,7 @@ Use `SEACLOUD_TEMPLATE_ID` for production integrations. It can be either a concr
 - API model: this SDK targets the unified SeaCloudAI sandbox gateway and keeps public template APIs limited to user-facing fields.
 - Stability: operator/admin routes may exist on the gateway, but they are not part of the public SDK workflow described in this README.
 - Retry model: treat create/delete/build operations as remote control-plane actions; add idempotency and retry policy in your application layer according to your workload.
+- Timeout semantics: public sandbox, command, PTY, git, and code-execution `Timeout` values are in seconds. `core.WithTimeout(...)` controls the SDK HTTP client timeout.
 
 ## Quick Start
 
@@ -88,22 +90,12 @@ import (
 )
 
 func main() {
-	client, err := sandbox.NewClient(
-		os.Getenv("SEACLOUD_BASE_URL"),
-		os.Getenv("SEACLOUD_API_KEY"),
-		core.WithProjectID(os.Getenv("SEACLOUD_PROJECT_ID")),
-		core.WithTimeout(180*time.Second),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	ready := true
 	timeout := int32(1800)
-	createdSandbox, err := client.Create(context.Background(), os.Getenv("SEACLOUD_TEMPLATE_ID"), &sandbox.CreateOptions{
+	createdSandbox, err := sandbox.Create(context.Background(), "base", &sandbox.CreateOptions{
 		WaitReady: &ready,
 		Timeout:   &timeout,
-	})
+	}, core.WithProjectID(os.Getenv("SEACLOUD_PROJECT_ID")), core.WithTimeout(180*time.Second))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -123,12 +115,7 @@ func main() {
 ### Bound Sandbox Workflow
 
 ```go
-client, err := sandbox.NewClient(os.Getenv("SEACLOUD_BASE_URL"), os.Getenv("SEACLOUD_API_KEY"))
-if err != nil {
-	log.Fatal(err)
-}
-
-listed, err := client.List(context.Background(), nil)
+listed, err := sandbox.List(context.Background(), nil)
 if err != nil {
 	log.Fatal(err)
 }
@@ -150,12 +137,7 @@ template := sandbox.NewTemplate().
 	RunCmd("echo hello-from-go >/tmp/hello.txt", nil).
 	SetReadyCmd(sandbox.WaitForFile("/tmp/hello.txt"))
 
-client, err := sandbox.NewClient(os.Getenv("SEACLOUD_BASE_URL"), os.Getenv("SEACLOUD_API_KEY"))
-if err != nil {
-	log.Fatal(err)
-}
-
-built, err := client.BuildTemplate(context.Background(), template, "demo:v1", nil)
+built, err := sandbox.BuildTemplate(context.Background(), template, "demo:v1", nil)
 if err != nil {
 	log.Fatal(err)
 }
@@ -165,14 +147,14 @@ log.Printf("template=%s build=%s status=%s", built.TemplateID, built.BuildID, bu
 
 High-level template helpers currently include:
 
-- lifecycle and status: `client.BuildTemplate`, `client.BuildTemplateInBackground`, `client.TemplateExists`, `client.TemplateAliasExists`, `client.GetTemplateBuildStatus`, `client.ListTemplates`, `client.GetTemplate`, `client.DeleteTemplate`
+- lifecycle and status: `sandbox.BuildTemplate`, `sandbox.BuildTemplateInBackground`, `sandbox.TemplateExists`, `sandbox.GetTemplateBuildStatus`, `sandbox.ListTemplates`, `sandbox.GetTemplate`, `sandbox.DeleteTemplate`
 - serialization: `sandbox.TemplateToJSON`, `sandbox.TemplateToDockerfile`
 - base images and registries: `FromDockerfile`, `FromBaseImage`, `FromNodeImage`, `FromPythonImage`, `FromBunImage`, `FromUbuntuImage`, `FromDebianImage`, `FromAWSRegistry`, `FromGCPRegistry`
 - build-step helpers: `Copy`, `CopyItems`, `SkipCache`, `AptInstall`, `GitClone`, `MakeDir`, `MakeSymlink`, `NpmInstall`, `PipInstall`, `BunInstall`, `Remove`, `Rename`, `RunCmd`, `RunCmds`
 - execution and config helpers: `SetEnvs`, `SetWorkdir`, `SetUser`, `SetStartCmd`, `SetReadyCmd`, `FilesHash`
-- supported local copy options: `ForceUpload`, `Mode`, `ResolveSymlinks`
+- supported local copy options: `ForceUpload`, `Mode`, `ResolveSymlinks`, `User`
 - supported command and path options: `RunCmd(..., &sandbox.TemplateCommandOptions{User: ...})`, `GitClone(..., &sandbox.TemplateGitCloneOptions{User: ...})`, `MakeDir(..., &sandbox.TemplateMakeDirOptions{User: ...})`, `MakeSymlink(..., &sandbox.TemplateMakeSymlinkOptions{User: ...})`, `Remove(..., &sandbox.TemplateRemoveOptions{...User: ...})`, `Rename(..., &sandbox.TemplateRenameOptions{...User: ...})`
-- intentionally not exposed yet: `Copy(..., user=...)`, MCP server helpers, and devcontainer helpers
+- intentionally not exposed yet: MCP server helpers and devcontainer helpers
 
 ### Raw Build Plane Through Root Client
 
@@ -189,10 +171,7 @@ import (
 )
 
 func main() {
-	client, err := sandbox.NewClient(
-		os.Getenv("SEACLOUD_BASE_URL"),
-		os.Getenv("SEACLOUD_API_KEY"),
-	)
+	client, err := sandbox.NewClientFromEnv()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -237,13 +216,13 @@ import (
 )
 
 func main() {
-	client, err := sandbox.NewClient(os.Getenv("SEACLOUD_BASE_URL"), os.Getenv("SEACLOUD_API_KEY"))
+	client, err := sandbox.NewClientFromEnv()
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	ready := true
-	createdSandbox, err := client.Create(context.Background(), os.Getenv("SEACLOUD_TEMPLATE_ID"), &sandbox.CreateOptions{
+	createdSandbox, err := client.Create(context.Background(), "base", &sandbox.CreateOptions{
 		WaitReady: &ready,
 	})
 	if err != nil {
@@ -263,14 +242,45 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("%s", body)
+log.Printf("%s", body)
 }
 ```
+
+### Code Interpreter
+
+Use a template that actually includes the code-interpreter environment here. In SeaCloudAI environments, prefer an official `code-interpreter` template or a concrete `tpl-code-interpreter-...` template ID. Do not use `base` for this example.
+
+```go
+execution, err := createdSandbox.RunCode(context.Background(), `
+import pandas as pd
+
+df = pd.DataFrame([{"name": "Ada", "score": 99}])
+display(df)
+99
+`, &sandbox.RunCodeOptions{
+	OnStdout: func(chunk sandbox.CodeOutputChunk) {
+		log.Printf("stdout: %s", chunk.Line)
+	},
+	OnStderr: func(chunk sandbox.CodeOutputChunk) {
+		log.Printf("stderr: %s", chunk.Line)
+	},
+	OnResult: func(result sandbox.CodeExecutionResult) {
+		log.Printf("result: %+v", result)
+	},
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Printf("text=%s", execution.Text())
+```
+
+For Python, repeated `RunCode(...)` calls reuse the sandbox's default code context. You can create additional Python contexts with `CreateCodeContext(...)` when you need isolated state. For other languages, `CreateCodeContext(...)` returns a reusable execution profile that supplies default `Language`, `CWD`, and `Timeout` values, but each run still executes in a fresh one-shot process.
 
 Bound sandbox helpers currently include:
 
 - lifecycle: `Reload`, `Connect`, `Resume`, `GetInfo`, `Logs`, `Pause`, `Kill`, `Delete`, `Refresh`, `SetTimeout`, `IsRunning`
 - runtime conveniences: `GetMetrics`, `GetHost`, `Proxy`
+- code interpreter: `RunCode`, `CreateCodeContext`, `ListCodeContexts`, `RestartCodeContext`, `RemoveCodeContext`
 - commands module: `Run`, `Exec`, `Start`, `Wait`, `List`, `Connect`, `Kill`, `SendStdin`
 - filesystem module: `Exists`, `GetInfo`, `List`, `MakeDir`, `Read`, `Write`, `WriteFiles`, `Remove`, `Rename`, `WatchDir`
 - git module: `Clone`, `Pull`, `Checkout`, `Status`
@@ -278,19 +288,20 @@ Bound sandbox helpers currently include:
 
 ## Recommended Usage
 
-For most integrations, prefer one root client per process:
+For most integrations, prefer the env-first high-level flow:
 
-- initialize once with `sandbox.NewClient(baseURL, apiKey, opts...)`
-- create sandboxes with `client.Create(...)`
+- set `E2B_DOMAIN`, `E2B_API_KEY`, and optionally `SEACLOUD_PROJECT_ID`
+- create sandboxes with `sandbox.Create(...)`
 - continue through `Commands()/Files()/Git()/Pty()`
-- build templates with `sandbox.NewTemplate()` plus `client.BuildTemplate(...)`
+- build templates with `sandbox.BuildTemplate(...)` and `sandbox.BuildTemplateInBackground(...)`
+- use `sandbox.NewClientFromEnv(...)` only when you need low-level metrics, raw build-plane access, or explicit control/build orchestration beyond the high-level facade
 
 Low-level methods remain available when you need tighter request control:
 
 - use `CreateSandbox`, `ListSandboxes`, `GetSandbox`, `ConnectSandbox`
 - continue from the returned sandbox object with `Reload()`, `Connect()`, `Resume()`, `GetInfo()`, `GetMetrics()`, `GetHost()`, `Logs()`, `Pause()`, `Refresh()`, `SetTimeout()`, `Kill()`, `Delete()`, and `IsRunning()`
 - only switch to runtime with `Runtime()` when you need file/process/stream operations
-- use `BuildTemplate`, `BuildTemplateInBackground`, `TemplateExists`, `GetTemplateBuildStatus`, `ListTemplates`, `GetTemplate`, and `DeleteTemplate` on the root client for bound template workflows
+- use `sandbox.BuildTemplate(...)`, `sandbox.BuildTemplateInBackground(...)`, `sandbox.TemplateExists(...)`, `sandbox.GetTemplateBuildStatus(...)`, `sandbox.ListTemplates(...)`, `sandbox.GetTemplate(...)`, and `sandbox.DeleteTemplate(...)` for the preferred template workflow
 - use `client.Build` only for raw template/build workflows
 - use `build.NewTemplateBuildBuilder()` when you want a small fluent helper that expands into `BuildRequest`
 
@@ -309,7 +320,7 @@ Low-level domain packages remain available when you need direct request/response
 Recommended root-client path:
 
 - high-level lifecycle: `Create`, `Connect`, `List`, `Get`
-- template helpers: `BuildTemplate`, `BuildTemplateInBackground`, `TemplateExists`, `TemplateAliasExists`, `GetTemplateBuildStatus`, `ListTemplates`, `GetTemplate`, `DeleteTemplate`
+- template helpers: `BuildTemplate`, `BuildTemplateInBackground`, `TemplateExists`, `GetTemplateBuildStatus`, `ListTemplates`, `GetTemplate`, `DeleteTemplate`
 - low-level lifecycle: `CreateSandbox`, `ListSandboxes`, `GetSandbox`, `ConnectSandbox`
 - follow-up control actions from the returned object: `Reload()`, `Connect()`, `Resume()`, `GetInfo()`, `GetMetrics()`, `GetHost()`, `Logs()`, `Pause()`, `Refresh()`, `SetTimeout()`, `Kill()`, `Delete()`, `IsRunning()`
 - runtime actions from objects that include `EnvdURL`: `Runtime()`
@@ -327,9 +338,9 @@ These routes are intended for platform operators, not normal application workloa
 Preferred template path:
 
 - `sandbox.NewTemplate()` for build DSL
-- `client.BuildTemplate(...)` for create + build + optional polling
-- `client.BuildTemplateInBackground(...)` for fire-and-poll-later workflows
-- `client.ListTemplates(...)`, `client.GetTemplate(...)`, `client.DeleteTemplate(...)`, `client.TemplateExists(...)`, `client.TemplateAliasExists(...)`, `client.GetTemplateBuildStatus(...)` for bound lifecycle and status
+- `sandbox.BuildTemplate(...)` for create + build + optional polling
+- `sandbox.BuildTemplateInBackground(...)` for fire-and-poll-later workflows
+- `sandbox.ListTemplates(...)`, `sandbox.GetTemplate(...)`, `sandbox.DeleteTemplate(...)`, `sandbox.TemplateExists(...)`, `sandbox.GetTemplateBuildStatus(...)` for lifecycle and status
 - `sandbox.TemplateToJSON(...)`, `sandbox.TemplateToDockerfile(...)` for export helpers
 
 Template builder conveniences include:
@@ -337,9 +348,9 @@ Template builder conveniences include:
 - base images and registries: `FromDockerfile` (returns `(*Template, error)`), `FromBaseImage`, `FromNodeImage`, `FromPythonImage`, `FromBunImage`, `FromUbuntuImage`, `FromDebianImage`, `FromAWSRegistry`, `FromGCPRegistry`
 - file and command helpers: `Copy`, `CopyItems`, `SkipCache`, `AptInstall`, `GitClone`, `MakeDir`, `MakeSymlink`, `NpmInstall`, `PipInstall`, `BunInstall`, `Remove`, `Rename`, `RunCmd`, `RunCmds`
 - execution and config helpers: `SetEnvs`, `SetWorkdir`, `SetUser`, `SetStartCmd`, `SetReadyCmd`, `FilesHash`
-- supported local copy options: `ForceUpload`, `Mode`, `ResolveSymlinks`
+- supported local copy options: `ForceUpload`, `Mode`, `ResolveSymlinks`, `User`
 - supported command and path options: `RunCmd(..., &sandbox.TemplateCommandOptions{User: ...})`, `GitClone(..., &sandbox.TemplateGitCloneOptions{User: ...})`, `MakeDir(..., &sandbox.TemplateMakeDirOptions{User: ...})`, `MakeSymlink(..., &sandbox.TemplateMakeSymlinkOptions{User: ...})`, `Remove(..., &sandbox.TemplateRemoveOptions{...User: ...})`, `Rename(..., &sandbox.TemplateRenameOptions{...User: ...})`
-- intentionally not exposed yet: `Copy(..., user=...)`, MCP server helpers, and devcontainer helpers
+- intentionally not exposed yet: MCP server helpers and devcontainer helpers
 
 ### Build Plane Through `client.Build`
 
@@ -350,7 +361,8 @@ Low-level `client.Build` exposes:
 - templates: `CreateTemplate`, `ListTemplates`, `GetTemplateByAlias`, `ResolveTemplateRef`, `GetTemplate`, `UpdateTemplate`, `DeleteTemplate`
 - builds: `CreateBuild`, `GetBuildFile`, `RollbackTemplate`, `ListBuilds`, `GetBuild`, `GetBuildStatus`, `GetBuildLogs`
 
-The public template contract is split into three layers: top-level create fields (`Name`, `Tags`, `CPUCount`, `MemoryMB`), SeaCloud template extensions under `Extensions.Seacloud` (`BaseTemplateID`, `Visibility`, `Envs`, `StorageType`, `StorageSizeGB`), and build-only fields on `CreateBuild` (`FromImage`, `FromTemplate`, `Steps`, `StartCmd`, `ReadyCmd`, registry credentials, `FilesHash`).
+The public template contract is split into three layers: top-level create fields (`Name`, `Tags`, `CPUCount`, `MemoryMB`), template extensions under `Extensions` (`BaseTemplateID`, `Visibility`, `Envs`, `StorageType`, `StorageSizeGB`, `VolumeMounts`), and build-only fields on `CreateBuild` (`FromImage`, `FromTemplate`, `Steps`, `StartCmd`, `ReadyCmd`, registry credentials, `FilesHash`).
+Runtime behavior defaults from the image source: templates inheriting SeaCloud base/runtime templates keep the managed runtime, while direct external images run as plain business containers. `StartCmd` and `ReadyCmd` only provide startup and readiness commands on top of that default.
 Public create/update calls reject legacy top-level write fields such as `Alias`, `TeamID`, and `Public`.
 
 For Go callers, the public write path and template read path now use different extension models on purpose:
@@ -360,7 +372,7 @@ For Go callers, the public write path and template read path now use different e
 
 This matches the current public builder API contract: request fields are intentionally narrower than response fields.
 
-`CreateTemplate` and `UpdateTemplate` reject `visibility=official` on public routes, including `Extensions.Seacloud.Visibility == "official"`.
+`CreateTemplate` and `UpdateTemplate` reject `visibility=official` on public routes, including `Extensions.Visibility == "official"`.
 
 `CreateBuild` now follows the wire contract directly: callers pass top-level `FilesHash` when needed, and the SDK returns the raw `202 {}` trigger response without adding helper fields.
 
@@ -403,7 +415,7 @@ Streaming APIs return `ProcessStream`, `FilesystemWatchStream`, and `ConnectFram
 
 ## Notes
 
-- The gateway entrypoint always needs `baseURL + apiKey` to initialize.
+- The gateway entrypoint always needs an API key. `baseURL` can come from `E2B_DOMAIN`.
 - Project-scoped deployments can set `core.WithProjectID(...)`; the SDK sends `X-Project-ID` on control/build requests.
 - Runtime access should be derived from sandbox response objects with `Runtime()` or `RuntimeFromSandbox(...)`.
 - `CreateSandbox` and `GetSandbox` responses include `EnvdURL` and `EnvdAccessToken` when the target sandbox supports CMD access.
@@ -419,7 +431,7 @@ Streaming APIs return `ProcessStream`, `FilesystemWatchStream`, and `ConnectFram
 
 ## Security
 
-- Do not commit `SEACLOUD_API_KEY`, `envdAccessToken`, or sandbox access tokens.
+- Do not commit `E2B_API_KEY`, `envdAccessToken`, or sandbox access tokens.
 - Treat runtime tokens as sandbox-scoped secrets. Prefer `createdSandbox.Runtime()` or `client.RuntimeFromSandbox(...)` so response-scoped runtime access is not copied into configuration.
 - Do not log raw API keys or runtime tokens. SDK errors may include response bodies, so avoid logging full error payloads in shared systems.
 - Set `core.WithProjectID(...)` when your gateway requires explicit project routing. The SDK sends it as `X-Project-ID`.
@@ -430,8 +442,8 @@ Use production smoke tests only with explicitly provided credentials and disposa
 
 ```bash
 SANDBOX_RUN_INTEGRATION=1 \
-SANDBOX_TEST_BASE_URL="${SEACLOUD_BASE_URL}" \
-SANDBOX_TEST_API_KEY="${SEACLOUD_API_KEY}" \
+SANDBOX_TEST_BASE_URL="${E2B_DOMAIN}" \
+SANDBOX_TEST_API_KEY="${E2B_API_KEY}" \
 SANDBOX_TEST_TEMPLATE_ID=tpl-base-dc11799b9f9f4f9e \
 go test ./tests/... -run Integration -count=1 -v
 ```
@@ -443,8 +455,8 @@ You can also run the same disposable smoke flow from GitHub Actions with `.githu
 
 ```bash
 SANDBOX_RUN_INTEGRATION=1 \
-SANDBOX_TEST_BASE_URL="${SEACLOUD_BASE_URL}" \
-SANDBOX_TEST_API_KEY="${SEACLOUD_API_KEY}" \
+SANDBOX_TEST_BASE_URL="${E2B_DOMAIN}" \
+SANDBOX_TEST_API_KEY="${E2B_API_KEY}" \
 SANDBOX_TEST_TEMPLATE_ID=... \
 go test ./tests/... -count=1 -v
 ```

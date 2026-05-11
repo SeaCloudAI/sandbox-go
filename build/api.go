@@ -394,12 +394,11 @@ func validateTemplateUpdateRequest(req *TemplateUpdateRequest) error {
 }
 
 func validatePublicTemplateExtensions(ext *PublicTemplateExtensions) error {
-	if ext == nil || ext.Seacloud == nil {
+	if ext == nil {
 		return nil
 	}
-	seacloud := ext.Seacloud
-	if strings.TrimSpace(seacloud.Visibility) == "official" {
-		return fmt.Errorf("sandbox: extensions.seacloud.visibility=official is not supported by the public SDK")
+	if strings.TrimSpace(ext.Visibility) == "official" {
+		return fmt.Errorf("sandbox: extensions.visibility=official is not supported by the public SDK")
 	}
 	return nil
 }

@@ -100,6 +100,15 @@ func TestCreateTemplateUsesGatewayAuthOnly(t *testing.T) {
 		if req.MemoryMB == nil || *req.MemoryMB != 1024 {
 			t.Fatalf("memoryMB = %#v", req.MemoryMB)
 		}
+		if req.Extensions == nil {
+			t.Fatalf("extensions = %#v", req.Extensions)
+		}
+		if len(req.Extensions.VolumeMounts) != 1 {
+			t.Fatalf("volumeMounts = %#v", req.Extensions.VolumeMounts)
+		}
+		if req.Extensions.VolumeMounts[0].Name != "cache" || req.Extensions.VolumeMounts[0].Path != "/cache" {
+			t.Fatalf("volumeMounts = %#v", req.Extensions.VolumeMounts)
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
@@ -124,6 +133,11 @@ func TestCreateTemplateUsesGatewayAuthOnly(t *testing.T) {
 		Tags:     []string{"v1"},
 		CPUCount: int32Ptr(2),
 		MemoryMB: int32Ptr(1024),
+		Extensions: &build.PublicTemplateExtensions{
+			VolumeMounts: []build.TemplateVolumeMount{
+				{Name: "cache", Path: "/cache"},
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("CreateTemplate: %v", err)
@@ -278,23 +292,19 @@ func TestTemplateValidationRejectsUnsupportedPublicExtensions(t *testing.T) {
 	_, err = service.CreateTemplate(context.Background(), &build.TemplateCreateRequest{
 		Name: "demo",
 		Extensions: &build.PublicTemplateExtensions{
-			Seacloud: &build.PublicSeacloudTemplateExtensions{
-				Visibility: "official",
-			},
+			Visibility: "official",
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "extensions.seacloud.visibility=official is not supported by the public SDK") {
+	if err == nil || !strings.Contains(err.Error(), "extensions.visibility=official is not supported by the public SDK") {
 		t.Fatalf("CreateTemplate error = %v", err)
 	}
 
 	_, err = service.UpdateTemplate(context.Background(), "tpl-1", &build.TemplateUpdateRequest{
 		Extensions: &build.PublicTemplateExtensions{
-			Seacloud: &build.PublicSeacloudTemplateExtensions{
-				Visibility: "official",
-			},
+			Visibility: "official",
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "extensions.seacloud.visibility=official is not supported by the public SDK") {
+	if err == nil || !strings.Contains(err.Error(), "extensions.visibility=official is not supported by the public SDK") {
 		t.Fatalf("UpdateTemplate error = %v", err)
 	}
 }
