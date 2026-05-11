@@ -40,6 +40,7 @@ type SeacloudTemplateExtensions struct {
 	ProjectID      string            `json:"projectID,omitempty"`
 	TTLSeconds     *int32            `json:"ttlSeconds,omitempty"`
 	Port           *int32            `json:"port,omitempty"`
+	RuntimeMode    string            `json:"runtimeMode,omitempty"`
 	StartCmd       string            `json:"startCmd,omitempty"`
 	ReadyCmd       string            `json:"readyCmd,omitempty"`
 }
@@ -197,6 +198,7 @@ type TemplateResponse struct {
 	ProbeTimeoutSecs      *int32               `json:"probeTimeoutSecs,omitempty"`
 	GatewayURL            string               `json:"gatewayURL,omitempty"`
 	HeartbeatIntervalSecs *int32               `json:"heartbeatIntervalSecs,omitempty"`
+	RuntimeMode           string               `json:"runtimeMode,omitempty"`
 	StartCmd              string               `json:"startCmd,omitempty"`
 	ReadyCmd              string               `json:"readyCmd,omitempty"`
 	Extensions            *TemplateExtensions  `json:"extensions,omitempty"`
@@ -231,6 +233,7 @@ type BuildRequest struct {
 	Force             *bool          `json:"force,omitempty"`
 	Steps             []BuildStep    `json:"steps,omitempty"`
 	FilesHash         string         `json:"filesHash,omitempty"`
+	RuntimeMode       string         `json:"runtimeMode,omitempty"`
 	StartCmd          string         `json:"startCmd,omitempty"`
 	ReadyCmd          string         `json:"readyCmd,omitempty"`
 }

@@ -419,6 +419,9 @@ func validateBuildRequest(req *BuildRequest) error {
 			return fmt.Errorf("sandbox: filesHash must be a 64-character lowercase hex SHA256")
 		}
 	}
+	if mode := strings.TrimSpace(req.RuntimeMode); mode != "" && mode != "managed" && mode != "plain" {
+		return fmt.Errorf("sandbox: runtimeMode must be \"managed\" or \"plain\"")
+	}
 
 	for i, step := range req.Steps {
 		stepType := strings.ToUpper(strings.TrimSpace(step.Type))
@@ -525,6 +528,7 @@ func isZeroBuildRequest(req *BuildRequest) bool {
 		req.Force == nil &&
 		len(req.Steps) == 0 &&
 		strings.TrimSpace(req.FilesHash) == "" &&
+		strings.TrimSpace(req.RuntimeMode) == "" &&
 		strings.TrimSpace(req.StartCmd) == "" &&
 		strings.TrimSpace(req.ReadyCmd) == ""
 }
