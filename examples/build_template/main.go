@@ -13,26 +13,16 @@ import (
 
 func main() {
 	ctx := context.Background()
-	baseURL := strings.TrimSpace(os.Getenv("SEACLOUD_BASE_URL"))
-	if baseURL == "" {
-		log.Fatal("SEACLOUD_BASE_URL is required")
-	}
-
-	apiKey := strings.TrimSpace(os.Getenv("SEACLOUD_API_KEY"))
-	if apiKey == "" {
-		log.Fatal("SEACLOUD_API_KEY is required")
+	if os.Getenv("E2B_API_KEY") == "" {
+		log.Fatal("E2B_API_KEY is required")
 	}
 
 	image := strings.TrimSpace(os.Getenv("SANDBOX_EXAMPLE_BUILD_IMAGE"))
 	if image == "" {
 		image = "docker.io/library/alpine:3.20"
 	}
-	client, err := sandbox.NewClient(baseURL, apiKey)
-	if err != nil {
-		log.Fatal(err)
-	}
 	name := "go-build-example-" + strconv.FormatInt(time.Now().UnixNano(), 10) + ":v1"
-	built, err := client.BuildTemplate(
+	built, err := sandbox.BuildTemplate(
 		ctx,
 		sandbox.NewTemplate().
 			FromImage(image).
@@ -52,7 +42,7 @@ func main() {
 	keepResources := strings.TrimSpace(strings.ToLower(os.Getenv("SANDBOX_EXAMPLE_KEEP_RESOURCES")))
 	if keepResources != "1" && keepResources != "true" && keepResources != "yes" {
 		defer func() {
-			if err := client.DeleteTemplate(ctx, built.TemplateID); err != nil {
+			if err := sandbox.DeleteTemplate(ctx, built.TemplateID); err != nil {
 				log.Printf("delete template warning: %v", err)
 				return
 			}

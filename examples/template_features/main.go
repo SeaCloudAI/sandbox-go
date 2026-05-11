@@ -23,8 +23,7 @@ var terminalBuildStatuses = map[string]bool{
 
 func main() {
 	ctx := context.Background()
-	baseURL := mustEnv("SEACLOUD_BASE_URL")
-	apiKey := mustEnv("SEACLOUD_API_KEY")
+	mustEnv("E2B_API_KEY")
 	image := strings.TrimSpace(os.Getenv("SANDBOX_EXAMPLE_BUILD_IMAGE"))
 	if image == "" {
 		image = "docker.io/library/alpine:3.20"
@@ -58,6 +57,7 @@ func main() {
 		Copy(linkedFile, "/workspace/copied-link.txt", &sandbox.TemplateCopyOptions{
 			Mode:            &mode,
 			ResolveSymlinks: true,
+			User:            "root",
 		})
 
 	requestJSON, err := sandbox.TemplateToJSON(template, true)
@@ -77,12 +77,7 @@ func main() {
 	}
 	log.Printf("dockerfile preview: %s", dockerfilePreview(dockerfileText))
 
-	client, err := sandbox.NewClient(baseURL, apiKey)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	built, err := client.BuildTemplateInBackground(ctx, template, templateName, nil)
+	built, err := sandbox.BuildTemplateInBackground(ctx, template, templateName, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -91,7 +86,7 @@ func main() {
 	templateID := built.TemplateID
 	if !keepResources {
 		defer func() {
-			if err := client.DeleteTemplate(ctx, templateID); err != nil {
+			if err := sandbox.DeleteTemplate(ctx, templateID); err != nil {
 				log.Printf("delete template warning: %v", err)
 				return
 			}
@@ -99,7 +94,7 @@ func main() {
 		}()
 	}
 
-	status, err := waitForBuild(ctx, client, built.TemplateID, built.BuildID)
+	status, err := waitForBuild(ctx, built.TemplateID, built.BuildID)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -108,13 +103,13 @@ func main() {
 		log.Fatalf("template build did not succeed: %s", status.Status)
 	}
 
-	exists, err := client.TemplateExists(ctx, built.TemplateID)
+	exists, err := sandbox.TemplateExists(ctx, built.TemplateID)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("template exists: %t", exists)
 
-	detail, err := client.GetTemplate(ctx, built.TemplateID, nil)
+	detail, err := sandbox.GetTemplate(ctx, built.TemplateID, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -148,11 +143,11 @@ func prepareDockerfileFixture(root, image string) (dockerfilePath string, linked
 	return dockerfilePath, linkedFile, nil
 }
 
-func waitForBuild(ctx context.Context, client *sandbox.Client, templateID, buildID string) (*build.BuildStatusResponse, error) {
+func waitForBuild(ctx context.Context, templateID, buildID string) (*build.BuildStatusResponse, error) {
 	logsOffset := 0
 	for {
 		limit := 100
-		status, err := client.GetTemplateBuildStatus(ctx, templateID, buildID, &sandbox.TemplateBuildStatusOptions{
+		status, err := sandbox.GetTemplateBuildStatus(ctx, templateID, buildID, &sandbox.TemplateBuildStatusOptions{
 			LogsOffset: &logsOffset,
 			Limit:      &limit,
 		})

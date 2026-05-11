@@ -15,13 +15,11 @@ type VolumeMount struct {
 
 // NewSandboxRequest is the request body for creating a sandbox.
 type NewSandboxRequest struct {
-	TemplateID   string            `json:"templateID,omitempty"`
-	WorkspaceID  string            `json:"workspaceId,omitempty"`
-	Timeout      *int32            `json:"timeout,omitempty"`
-	Metadata     map[string]string `json:"metadata,omitempty"`
-	EnvVars      map[string]string `json:"envVars,omitempty"`
-	VolumeMounts []VolumeMount     `json:"volumeMounts,omitempty"`
-	WaitReady    *bool             `json:"waitReady,omitempty"`
+	TemplateID string            `json:"templateID,omitempty"`
+	Timeout    *int32            `json:"timeout,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+	EnvVars    map[string]string `json:"envVars,omitempty"`
+	WaitReady  *bool             `json:"waitReady,omitempty"`
 }
 
 // Sandbox is returned by create and connect endpoints.

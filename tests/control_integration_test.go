@@ -3,12 +3,10 @@ package tests
 import (
 	"context"
 	"os"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	sandbox "github.com/SeaCloudAI/sandbox-go"
 	"github.com/SeaCloudAI/sandbox-go/cmd"
 	"github.com/SeaCloudAI/sandbox-go/control"
 	"github.com/SeaCloudAI/sandbox-go/core"
@@ -65,15 +63,13 @@ func TestIntegrationControlPlane(t *testing.T) {
 			t.Skip("SANDBOX_TEST_TEMPLATE_ID is not set")
 		}
 
-		workspaceID := "go-sdk-test-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 		timeout := int32(1800)
 		waitReady := true
 
 		created, err := service.CreateSandbox(ctx, &control.NewSandboxRequest{
-			TemplateID:  templateID,
-			WorkspaceID: workspaceID,
-			Timeout:     &timeout,
-			WaitReady:   &waitReady,
+			TemplateID: templateID,
+			Timeout:    &timeout,
+			WaitReady:  &waitReady,
 		})
 		if err != nil {
 			t.Fatalf("CreateSandbox: %v", err)
@@ -139,10 +135,7 @@ func TestIntegrationControlPlane(t *testing.T) {
 			t.Fatalf("connect status = %d", connected.StatusCode)
 		}
 		if connected.Sandbox.EnvdURL != nil && strings.TrimSpace(*connected.Sandbox.EnvdURL) != "" {
-			client, err := sandbox.NewClient(baseURL, apiKey, core.WithTimeout(180*time.Second))
-			if err != nil {
-				t.Fatalf("NewClient: %v", err)
-			}
+			client := newSDKClient(t, baseURL, core.WithTimeout(180*time.Second))
 			runtime, err := client.RuntimeFromSandbox(connected.Sandbox)
 			if err != nil {
 				t.Fatalf("RuntimeFromSandbox: %v", err)

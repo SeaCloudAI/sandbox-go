@@ -2,6 +2,9 @@ package sandbox
 
 import (
 	"context"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/SeaCloudAI/sandbox-go/build"
 	"github.com/SeaCloudAI/sandbox-go/cmd"
@@ -9,33 +12,41 @@ import (
 	"github.com/SeaCloudAI/sandbox-go/core"
 )
 
-type Client struct {
-	*control.Service
-	Build *build.Service
+type gatewayServices struct {
+	control *control.Service
+	build   *build.Service
 }
 
-func NewClient(baseURL, apiKey string, opts ...core.TransportOption) (*Client, error) {
-	controlService, err := control.NewService(baseURL, apiKey, opts...)
+const defaultBaseURL = "https://sandbox-gateway.cloud.seaart.ai"
+
+func newGatewayServices(baseURL, apiKey string, opts ...core.TransportOption) (*gatewayServices, error) {
+	baseURL, apiKey = resolveGatewayConfig(baseURL, apiKey)
+	defaultOpts := defaultGatewayTransportOptions("", 0)
+	controlService, err := control.NewService(baseURL, apiKey, append(defaultOpts, opts...)...)
 	if err != nil {
 		return nil, err
 	}
 
-	buildOps, err := build.NewService(baseURL, apiKey, opts...)
+	buildOps, err := build.NewService(baseURL, apiKey, append(defaultOpts, opts...)...)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Client{
-		Service: controlService,
-		Build:   buildOps,
+	return &gatewayServices{
+		control: controlService,
+		build:   buildOps,
 	}, nil
 }
 
-func (c *Client) NewCMD(baseURL, accessToken string) (*cmd.Service, error) {
+func newGatewayServicesFromEnv(opts ...core.TransportOption) (*gatewayServices, error) {
+	return newGatewayServices("", "", opts...)
+}
+
+func NewCMD(baseURL, accessToken string) (*cmd.Service, error) {
 	return cmd.NewService(baseURL, accessToken)
 }
 
-func (c *Client) Runtime(baseURL, accessToken string) (*Runtime, error) {
+func NewRuntime(baseURL, accessToken string) (*Runtime, error) {
 	service, err := cmd.NewService(baseURL, accessToken)
 	if err != nil {
 		return nil, err
@@ -43,37 +54,40 @@ func (c *Client) Runtime(baseURL, accessToken string) (*Runtime, error) {
 	return &Runtime{Service: service}, nil
 }
 
-func (c *Client) Create(ctx context.Context, templateID string, opts *CreateOptions) (*Sandbox, error) {
-	req := &control.NewSandboxRequest{TemplateID: templateID}
+func (g *gatewayServices) create(ctx context.Context, templateID string, opts *CreateOptions) (*Sandbox, error) {
+	req := &control.NewSandboxRequest{}
+	if value := strings.TrimSpace(templateID); value != "" {
+		req.TemplateID = value
+	}
 	if opts != nil {
-		req.TemplateID = firstNonEmpty(templateID, opts.TemplateID)
-		req.WorkspaceID = opts.WorkspaceID
+		if value := strings.TrimSpace(firstNonEmpty(templateID, opts.TemplateID)); value != "" {
+			req.TemplateID = value
+		}
 		req.Timeout = opts.Timeout
 		req.Metadata = opts.Metadata
 		req.EnvVars = opts.EnvVars
-		req.VolumeMounts = opts.VolumeMounts
 		req.WaitReady = opts.WaitReady
 	}
-	return c.CreateSandbox(ctx, req)
+	return g.createSandbox(ctx, req)
 }
 
-func (c *Client) Connect(ctx context.Context, sandboxID string, opts *ConnectOptions) (*Sandbox, error) {
+func (g *gatewayServices) connect(ctx context.Context, sandboxID string, opts *ConnectOptions) (*Sandbox, error) {
 	timeout := int32(300)
-	if opts != nil && opts.Timeout > 0 {
+	if opts != nil {
 		timeout = opts.Timeout
 	}
-	resp, err := c.ConnectSandbox(ctx, sandboxID, &control.ConnectSandboxRequest{Timeout: timeout})
+	resp, err := g.connectSandbox(ctx, sandboxID, &control.ConnectSandboxRequest{Timeout: timeout})
 	if err != nil {
 		return nil, err
 	}
 	return resp.Sandbox, nil
 }
 
-func (c *Client) List(ctx context.Context, opts *ListOptions) ([]*SandboxHandle, error) {
+func (g *gatewayServices) list(ctx context.Context, opts *ListOptions) ([]*SandboxHandle, error) {
 	if opts == nil {
-		return c.ListSandboxes(ctx, nil)
+		return g.listSandboxes(ctx, nil)
 	}
-	return c.ListSandboxes(ctx, &control.ListSandboxesParams{
+	return g.listSandboxes(ctx, &control.ListSandboxesParams{
 		Metadata:  opts.Metadata,
 		State:     opts.State,
 		Limit:     opts.Limit,
@@ -81,43 +95,39 @@ func (c *Client) List(ctx context.Context, opts *ListOptions) ([]*SandboxHandle,
 	})
 }
 
-func (c *Client) Get(ctx context.Context, sandboxID string) (*SandboxDetail, error) {
-	return c.GetSandbox(ctx, sandboxID)
+func (g *gatewayServices) get(ctx context.Context, sandboxID string) (*SandboxDetail, error) {
+	return g.getSandbox(ctx, sandboxID)
 }
 
-func (c *Client) BuildTemplate(ctx context.Context, template *Template, name string, opts *TemplateBuildOptions) (*TemplateBuildInfo, error) {
-	return buildTemplateWithService(ctx, c.Build, template, name, cloneTemplateBuildOptions(opts))
+func (g *gatewayServices) buildTemplate(ctx context.Context, template *Template, name string, opts *TemplateBuildOptions) (*TemplateBuildInfo, error) {
+	return buildTemplateWithService(ctx, g.build, template, name, opts)
 }
 
-func (c *Client) BuildTemplateInBackground(ctx context.Context, template *Template, name string, opts *TemplateBuildOptions) (*TemplateBuildInfo, error) {
+func (g *gatewayServices) buildTemplateInBackground(ctx context.Context, template *Template, name string, opts *TemplateBuildOptions) (*TemplateBuildInfo, error) {
 	cloned := cloneTemplateBuildOptions(opts)
 	wait := false
 	cloned.Wait = &wait
-	return buildTemplateWithService(ctx, c.Build, template, name, cloned)
+	return buildTemplateWithService(ctx, g.build, template, name, cloned)
 }
 
-func (c *Client) ListTemplates(ctx context.Context, opts *TemplateListOptions) ([]build.ListedTemplate, error) {
-	return listTemplatesWithService(ctx, c.Build, cloneTemplateListOptions(opts))
+func (g *gatewayServices) listTemplates(ctx context.Context, opts *TemplateListOptions) ([]build.ListedTemplate, error) {
+	return listTemplatesWithService(ctx, g.build, opts)
 }
 
-func (c *Client) GetTemplate(ctx context.Context, ref string, opts *TemplateGetOptions) (*build.TemplateResponse, error) {
-	return getTemplateWithService(ctx, c.Build, ref, cloneTemplateGetOptions(opts))
+func (g *gatewayServices) getTemplate(ctx context.Context, ref string, opts *TemplateGetOptions) (*build.TemplateResponse, error) {
+	return getTemplateWithService(ctx, g.build, ref, opts)
 }
 
-func (c *Client) DeleteTemplate(ctx context.Context, ref string) error {
-	return deleteTemplateWithService(ctx, c.Build, ref)
+func (g *gatewayServices) deleteTemplate(ctx context.Context, ref string) error {
+	return deleteTemplateWithService(ctx, g.build, ref)
 }
 
-func (c *Client) TemplateExists(ctx context.Context, ref string) (bool, error) {
-	return templateExistsWithService(ctx, c.Build, ref)
+func (g *gatewayServices) templateExists(ctx context.Context, ref string) (bool, error) {
+	return templateExistsWithService(ctx, g.build, ref)
 }
 
-func (c *Client) TemplateAliasExists(ctx context.Context, alias string) (bool, error) {
-	return c.TemplateExists(ctx, alias)
-}
-
-func (c *Client) GetTemplateBuildStatus(ctx context.Context, templateID, buildID string, opts *TemplateBuildStatusOptions) (*build.BuildStatusResponse, error) {
-	return getTemplateBuildStatusWithService(ctx, c.Build, templateID, buildID, cloneTemplateBuildStatusOptions(opts))
+func (g *gatewayServices) getTemplateBuildStatus(ctx context.Context, templateID, buildID string, opts *TemplateBuildStatusOptions) (*build.BuildStatusResponse, error) {
+	return getTemplateBuildStatusWithService(ctx, g.build, templateID, buildID, opts)
 }
 
 func cloneTemplateBuildOptions(opts *TemplateBuildOptions) *TemplateBuildOptions {
@@ -125,33 +135,135 @@ func cloneTemplateBuildOptions(opts *TemplateBuildOptions) *TemplateBuildOptions
 		return &TemplateBuildOptions{}
 	}
 	cloned := *opts
-	cloned.GatewayConfig = GatewayConfig{}
 	return &cloned
 }
 
-func cloneTemplateListOptions(opts *TemplateListOptions) *TemplateListOptions {
-	if opts == nil {
-		return &TemplateListOptions{}
+func resolveGatewayConfig(baseURL, apiKey string) (string, string) {
+	resolvedBaseURL := strings.TrimSpace(baseURL)
+	if resolvedBaseURL == "" {
+		resolvedBaseURL = normalizeDomain(strings.TrimSpace(os.Getenv("E2B_DOMAIN")))
 	}
-	cloned := *opts
-	cloned.GatewayConfig = GatewayConfig{}
-	return &cloned
+	if resolvedBaseURL == "" {
+		resolvedBaseURL = defaultBaseURL
+	}
+
+	resolvedAPIKey := strings.TrimSpace(apiKey)
+	if resolvedAPIKey == "" {
+		resolvedAPIKey = strings.TrimSpace(os.Getenv("E2B_API_KEY"))
+	}
+	return resolvedBaseURL, resolvedAPIKey
 }
 
-func cloneTemplateGetOptions(opts *TemplateGetOptions) *TemplateGetOptions {
-	if opts == nil {
-		return &TemplateGetOptions{}
+func normalizeDomain(value string) string {
+	if value == "" {
+		return ""
 	}
-	cloned := *opts
-	cloned.GatewayConfig = GatewayConfig{}
-	return &cloned
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+		return value
+	}
+	return "https://" + value
 }
 
-func cloneTemplateBuildStatusOptions(opts *TemplateBuildStatusOptions) *TemplateBuildStatusOptions {
-	if opts == nil {
-		return &TemplateBuildStatusOptions{}
+func defaultGatewayTransportOptions(projectID string, timeout time.Duration) []core.TransportOption {
+	resolvedProjectID := strings.TrimSpace(projectID)
+	if resolvedProjectID == "" {
+		resolvedProjectID = strings.TrimSpace(os.Getenv("SEACLOUD_PROJECT_ID"))
 	}
-	cloned := *opts
-	cloned.GatewayConfig = GatewayConfig{}
-	return &cloned
+
+	var opts []core.TransportOption
+	if resolvedProjectID != "" {
+		opts = append(opts, core.WithProjectID(resolvedProjectID))
+	}
+	if timeout > 0 {
+		opts = append(opts, core.WithTimeout(timeout))
+	}
+	return opts
+}
+
+func Create(ctx context.Context, templateID string, opts *CreateOptions, transportOpts ...core.TransportOption) (*Sandbox, error) {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return gateway.create(ctx, templateID, opts)
+}
+
+func Connect(ctx context.Context, sandboxID string, opts *ConnectOptions, transportOpts ...core.TransportOption) (*Sandbox, error) {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return gateway.connect(ctx, sandboxID, opts)
+}
+
+func List(ctx context.Context, opts *ListOptions, transportOpts ...core.TransportOption) ([]*SandboxHandle, error) {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return gateway.list(ctx, opts)
+}
+
+func Get(ctx context.Context, sandboxID string, transportOpts ...core.TransportOption) (*SandboxDetail, error) {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return gateway.get(ctx, sandboxID)
+}
+
+func BuildTemplate(ctx context.Context, template *Template, name string, opts *TemplateBuildOptions, transportOpts ...core.TransportOption) (*TemplateBuildInfo, error) {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return gateway.buildTemplate(ctx, template, name, opts)
+}
+
+func BuildTemplateInBackground(ctx context.Context, template *Template, name string, opts *TemplateBuildOptions, transportOpts ...core.TransportOption) (*TemplateBuildInfo, error) {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return gateway.buildTemplateInBackground(ctx, template, name, opts)
+}
+
+func ListTemplates(ctx context.Context, opts *TemplateListOptions, transportOpts ...core.TransportOption) ([]build.ListedTemplate, error) {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return gateway.listTemplates(ctx, opts)
+}
+
+func GetTemplate(ctx context.Context, ref string, opts *TemplateGetOptions, transportOpts ...core.TransportOption) (*build.TemplateResponse, error) {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return gateway.getTemplate(ctx, ref, opts)
+}
+
+func DeleteTemplate(ctx context.Context, ref string, transportOpts ...core.TransportOption) error {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return err
+	}
+	return gateway.deleteTemplate(ctx, ref)
+}
+
+func TemplateExists(ctx context.Context, ref string, transportOpts ...core.TransportOption) (bool, error) {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return false, err
+	}
+	return gateway.templateExists(ctx, ref)
+}
+
+func GetTemplateBuildStatus(ctx context.Context, templateID, buildID string, opts *TemplateBuildStatusOptions, transportOpts ...core.TransportOption) (*build.BuildStatusResponse, error) {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return gateway.getTemplateBuildStatus(ctx, templateID, buildID, opts)
 }

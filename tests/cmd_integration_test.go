@@ -16,7 +16,7 @@ import (
 )
 
 func TestIntegrationCMD(t *testing.T) {
-	baseURL, apiKey, templateID := integrationConfig(t)
+	baseURL, _, templateID := integrationConfig(t)
 	workspaceRoot := os.Getenv("SANDBOX_TEST_SANDBOX_ROOT")
 	if workspaceRoot == "" {
 		workspaceRoot = "/root/workspace"
@@ -26,21 +26,16 @@ func TestIntegrationCMD(t *testing.T) {
 		t.Skip("SANDBOX_TEST_TEMPLATE_ID is not set")
 	}
 
-	client, err := sandbox.NewClient(baseURL, apiKey)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
+	client := newSDKClient(t, baseURL)
 
 	ctx := context.Background()
-	workspaceID := "go-cmd-sdk-test-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	timeout := int32(1800)
 	waitReady := true
 
 	created, err := client.CreateSandbox(ctx, &control.NewSandboxRequest{
-		TemplateID:  templateID,
-		WorkspaceID: workspaceID,
-		Timeout:     &timeout,
-		WaitReady:   &waitReady,
+		TemplateID: templateID,
+		Timeout:    &timeout,
+		WaitReady:  &waitReady,
 	})
 	if err != nil {
 		t.Fatalf("CreateSandbox: %v", err)

@@ -20,14 +20,9 @@ import (
 	"github.com/SeaCloudAI/sandbox-go/cmd"
 )
 
-func newClient(t *testing.T, baseURL string) *sandbox.Client {
+func newClient(t *testing.T, baseURL string) *sdkClient {
 	t.Helper()
-
-	client, err := sandbox.NewClient(baseURL, "unit-auth-value")
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	return client
+	return newSDKClient(t, baseURL)
 }
 
 func encodeProcessFrames(frames []map[string]any) ([]byte, error) {
@@ -217,7 +212,7 @@ func TestFacadeSandboxLifecycleHelpers(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatalf("decode connect request: %v", err)
 			}
-			if req["timeout"] != float64(300) {
+			if req["timeout"] != float64(0) {
 				t.Fatalf("timeout = %#v", req["timeout"])
 			}
 			_, _ = w.Write([]byte(`{

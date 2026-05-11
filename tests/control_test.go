@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SeaCloudAI/sandbox-go"
 	"github.com/SeaCloudAI/sandbox-go/control"
 	"github.com/SeaCloudAI/sandbox-go/core"
 )
@@ -60,14 +59,7 @@ func TestCreateSandbox(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := sandbox.NewClient(
-		server.URL,
-		"unit-auth-value",
-		core.WithProjectID("project-1"),
-	)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
+	client := newSDKClient(t, server.URL, core.WithProjectID("project-1"))
 
 	resp, err := client.CreateSandbox(context.Background(), &control.NewSandboxRequest{TemplateID: "base"})
 	if err != nil {
@@ -185,10 +177,7 @@ func TestRootListSandboxesReturnsBoundHandles(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := sandbox.NewClient(server.URL, "unit-auth-value")
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
+	client := newSDKClient(t, server.URL)
 
 	listed, err := client.ListSandboxes(context.Background(), nil)
 	if err != nil {
@@ -581,10 +570,7 @@ func TestBoundSandboxHelpersUseStoredClient(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := sandbox.NewClient(server.URL, "unit-auth-value")
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
+	client := newSDKClient(t, server.URL)
 
 	created, err := client.CreateSandbox(context.Background(), &control.NewSandboxRequest{TemplateID: "base"})
 	if err != nil {

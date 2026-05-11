@@ -171,7 +171,6 @@ type TemplateResponse struct {
 	EmptyDirMedium        string               `json:"emptyDirMedium,omitempty"`
 	ObjectBucket          string               `json:"objectBucket,omitempty"`
 	ObjectKeyPrefix       string               `json:"objectKeyPrefix,omitempty"`
-	WorkspaceID           string               `json:"workspaceID,omitempty"`
 	NfsHostPath           string               `json:"nfsHostPath,omitempty"`
 	CPULimitRatio         *float64             `json:"cpuLimitRatio,omitempty"`
 	MemoryLimitRatio      *float64             `json:"memoryLimitRatio,omitempty"`

@@ -18,30 +18,31 @@ import (
 func main() {
 	ctx := context.Background()
 
-	baseURL := mustEnv("SEACLOUD_BASE_URL")
-	apiKey := mustEnv("SEACLOUD_API_KEY")
+	apiKey := mustEnv("E2B_API_KEY")
+	gatewayBaseURL := firstNonEmpty(strings.TrimSpace(os.Getenv("E2B_DOMAIN")), "https://sandbox-gateway.cloud.seaart.ai")
 	runtimeBaseImage := mustEnv("SANDBOX_EXAMPLE_RUNTIME_BASE_IMAGE")
 	keepResources := envEnabled("SANDBOX_EXAMPLE_KEEP_RESOURCES")
+	transportOpts := gatewayTransportOptions()
 
-	client, err := sandbox.NewClient(
-		baseURL,
-		apiKey,
-		core.WithTimeout(180*time.Second),
-	)
+	controlService, err := control.NewService(gatewayBaseURL, apiKey, transportOpts...)
+	if err != nil {
+		log.Fatal(err)
+	}
+	buildService, err := build.NewService(gatewayBaseURL, apiKey, transportOpts...)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	logMetricLine("control", func() (string, error) {
-		return client.Metrics(ctx)
+		return controlService.Metrics(ctx)
 	})
 	logMetricLine("build", func() (string, error) {
-		return client.Build.Metrics(ctx)
+		return buildService.Metrics(ctx)
 	})
 
 	templateName := fmt.Sprintf("go-full-workflow-%d", time.Now().UnixNano())
 	buildLogCount := 0
-	built, err := client.BuildTemplate(
+	built, err := sandbox.BuildTemplate(
 		ctx,
 		sandbox.NewTemplate().
 			FromImage(runtimeBaseImage).
@@ -55,6 +56,7 @@ func main() {
 				log.Println(entry.String())
 			},
 		},
+		transportOpts...,
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -67,7 +69,7 @@ func main() {
 
 	if !keepResources {
 		defer func() {
-			if err := client.DeleteTemplate(ctx, templateID); err != nil {
+			if err := sandbox.DeleteTemplate(ctx, templateID, transportOpts...); err != nil {
 				log.Printf("delete template warning: %v", err)
 				return
 			}
@@ -75,15 +77,15 @@ func main() {
 		}()
 	}
 
-	buildStatus, err := client.GetTemplateBuildStatus(ctx, templateID, buildID, &sandbox.TemplateBuildStatusOptions{
+	buildStatus, err := sandbox.GetTemplateBuildStatus(ctx, templateID, buildID, &sandbox.TemplateBuildStatusOptions{
 		Limit: intPtr(20),
-	})
+	}, transportOpts...)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("build logs: count=%d last=%q", buildLogCount, latestBuildLog(buildStatus))
 
-	templateDetail, err := client.GetTemplate(ctx, templateID, nil)
+	templateDetail, err := sandbox.GetTemplate(ctx, templateID, nil, transportOpts...)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -91,10 +93,10 @@ func main() {
 
 	waitReady := true
 	timeout := int32(1800)
-	createdSandbox, err := client.Create(ctx, templateID, &sandbox.CreateOptions{
+	createdSandbox, err := sandbox.Create(ctx, templateID, &sandbox.CreateOptions{
 		WaitReady: &waitReady,
 		Timeout:   &timeout,
-	})
+	}, transportOpts...)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -196,6 +198,15 @@ func firstNonEmptyLine(input string) string {
 	return ""
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
 func logMetricLine(name string, fn func() (string, error)) {
 	value, err := fn()
 	if err != nil {
@@ -224,4 +235,12 @@ func latestSandboxLog(logs *control.SandboxLogsResponse) string {
 
 func intPtr(value int) *int {
 	return &value
+}
+
+func gatewayTransportOptions() []core.TransportOption {
+	opts := []core.TransportOption{core.WithTimeout(180 * time.Second)}
+	if projectID := strings.TrimSpace(os.Getenv("SEACLOUD_PROJECT_ID")); projectID != "" {
+		opts = append(opts, core.WithProjectID(projectID))
+	}
+	return opts
 }

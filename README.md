@@ -13,13 +13,12 @@ go get github.com/SeaCloudAI/sandbox-go
 Preferred public API:
 
 - preferred sandbox entrypoint: package-level helpers such as `sandbox.Create(...)`, `sandbox.Connect(...)`, and `sandbox.List(...)`, which read gateway config from env by default
-- optional advanced client: `sandbox.NewClientFromEnv(...)` for custom control/build workflows
 - sandbox runtime modules from the returned object: `created.Commands()`, `created.Files()`, `created.Git()`, `created.Pty()`
 - preferred template entrypoint: package-level helpers such as `sandbox.BuildTemplate(...)`, `sandbox.BuildTemplateInBackground(...)`, `sandbox.ListTemplates(...)`, and `sandbox.GetTemplate(...)`
-- low-level build plane via `client.Build`
-- raw runtime helper: `createdSandbox.Runtime()` or `client.RuntimeFromSandbox(createdSandbox)`
+- low-level control/build transports via `control.NewService(...)` and `build.NewService(...)`
+- raw runtime helpers: `createdSandbox.Runtime()`, `sandbox.RuntimeFromSandbox(...)`, `sandbox.RuntimeFromDetail(...)`, and `sandbox.NewRuntime(...)`
 
-`control` and `build` both talk to the same gateway. Runtime access is derived from sandbox create/detail/connect responses; callers should not hardcode runtime endpoints or tokens. Project-scoped deployments can inject gateway routing context with `core.WithProjectID(...)`.
+High-level package helpers read gateway config from `E2B_DOMAIN` / `E2B_API_KEY`. Low-level `control`, `build`, and runtime helpers can still be initialized explicitly when needed. Runtime access is derived from sandbox create/detail/connect responses; callers should not hardcode runtime endpoints or tokens. Project-scoped deployments can inject gateway routing context with `core.WithProjectID(...)`.
 
 ## E2B Alignment
 
@@ -28,7 +27,7 @@ Preferred public API:
 - Known unsupported area: snapshot APIs are not exposed because the underlying platform does not support them yet.
 - Known partial area: only Python contexts are stateful. Non-Python contexts still execute in isolated one-shot processes.
 - Go-specific note: the SDK aims for semantic equivalence rather than identical hand feel. Method names, `context.Context`, and `(..., error)` returns stay Go-native on purpose.
-- Runtime compatibility note: the SDK normalizes a few runtime-specific quirks so the high-level behavior stays E2B-like, such as missing-process `Kill()` results and PTY reconnect output framing.
+- Runtime normalization note: the SDK smooths a few runtime-specific quirks so the high-level behavior stays E2B-like, such as missing-process `Kill()` results and PTY reconnect output framing.
 
 ## Environment
 
@@ -52,11 +51,11 @@ Default production gateway:
 https://sandbox-gateway.cloud.seaart.ai
 ```
 
-High-level create helpers default to the official `base` template when you do not pass a template explicitly. For production integrations, prefer passing a concrete template ID such as `tpl-...` or a stable official template type such as `base`, `code-interpreter`, `claude`, or `codex` when your environment publishes those official templates.
+High-level create helpers omit `templateID` when you do not pass one, so Atlas can apply its server-side default of the latest official `base` template. For production integrations, prefer passing a concrete template ID such as `tpl-...` or a stable official template type such as `base`, `code-interpreter`, `claude`, or `codex` when your environment publishes those official templates.
 
 ## Production Readiness
 
-- Package-level helpers are fine for simple env-first flows. For repeated low-level or mixed control/build workflows, initialize exactly one root client and reuse it.
+- Package-level helpers are fine for simple env-first flows. For repeated low-level workflows, initialize one `control.Service` and/or `build.Service` and reuse them.
 - Treat every quick start as creating billable or quota-bound resources unless it explicitly cleans them up.
 - Prefer explicit template references from configuration over hardcoded example values.
 - In SeaCloudAI environments, prefer official template types such as `base`, `code-interpreter`, `claude`, or `codex` when you want a stable platform-managed entrypoint.
@@ -70,7 +69,7 @@ High-level create helpers default to the official `base` template when you do no
 - API model: this SDK targets the unified SeaCloudAI sandbox gateway and keeps public template APIs limited to user-facing fields.
 - Stability: operator/admin routes may exist on the gateway, but they are not part of the public SDK workflow described in this README.
 - Retry model: treat create/delete/build operations as remote control-plane actions; add idempotency and retry policy in your application layer according to your workload.
-- Timeout semantics: public sandbox, command, PTY, git, and code-execution `Timeout` values are in seconds. `core.WithTimeout(...)` controls the SDK HTTP client timeout.
+- Timeout semantics: public sandbox, command, PTY, git, and code-execution `Timeout` values are in seconds. Lifecycle TTL fields exposed through Atlas control-plane APIs accept `0` when the service defines a zero-value meaning, such as connect without TTL refresh. `core.WithTimeout(...)` controls the SDK HTTP client timeout.
 
 ## Quick Start
 
@@ -156,7 +155,7 @@ High-level template helpers currently include:
 - supported command and path options: `RunCmd(..., &sandbox.TemplateCommandOptions{User: ...})`, `GitClone(..., &sandbox.TemplateGitCloneOptions{User: ...})`, `MakeDir(..., &sandbox.TemplateMakeDirOptions{User: ...})`, `MakeSymlink(..., &sandbox.TemplateMakeSymlinkOptions{User: ...})`, `Remove(..., &sandbox.TemplateRemoveOptions{...User: ...})`, `Rename(..., &sandbox.TemplateRenameOptions{...User: ...})`
 - intentionally not exposed yet: MCP server helpers and devcontainer helpers
 
-### Raw Build Plane Through Root Client
+### Raw Build Plane Through `build.NewService(...)`
 
 ```go
 package main
@@ -166,26 +165,30 @@ import (
 	"log"
 	"os"
 
-	"github.com/SeaCloudAI/sandbox-go"
 	"github.com/SeaCloudAI/sandbox-go/build"
+	"github.com/SeaCloudAI/sandbox-go/core"
 )
 
 func main() {
-	client, err := sandbox.NewClientFromEnv()
+	service, err := build.NewService(
+		os.Getenv("E2B_DOMAIN"),
+		os.Getenv("E2B_API_KEY"),
+		core.WithProjectID(os.Getenv("SEACLOUD_PROJECT_ID")),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	resp, err := client.Build.CreateTemplate(context.Background(), &build.TemplateCreateRequest{
+	resp, err := service.CreateTemplate(context.Background(), &build.TemplateCreateRequest{
 		Name: "demo",
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer client.Build.DeleteTemplate(context.Background(), resp.TemplateID)
+	defer service.DeleteTemplate(context.Background(), resp.TemplateID)
 
 	buildID := "build-demo"
-	_, err = client.Build.CreateBuild(
+	_, err = service.CreateBuild(
 		context.Background(),
 		resp.TemplateID,
 		buildID,
@@ -213,18 +216,14 @@ import (
 	"os"
 
 	"github.com/SeaCloudAI/sandbox-go"
+	"github.com/SeaCloudAI/sandbox-go/core"
 )
 
 func main() {
-	client, err := sandbox.NewClientFromEnv()
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	ready := true
-	createdSandbox, err := client.Create(context.Background(), "base", &sandbox.CreateOptions{
+	createdSandbox, err := sandbox.Create(context.Background(), "base", &sandbox.CreateOptions{
 		WaitReady: &ready,
-	})
+	}, core.WithProjectID(os.Getenv("SEACLOUD_PROJECT_ID")))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -242,7 +241,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-log.Printf("%s", body)
+	log.Printf("%s", body)
 }
 ```
 
@@ -294,15 +293,15 @@ For most integrations, prefer the env-first high-level flow:
 - create sandboxes with `sandbox.Create(...)`
 - continue through `Commands()/Files()/Git()/Pty()`
 - build templates with `sandbox.BuildTemplate(...)` and `sandbox.BuildTemplateInBackground(...)`
-- use `sandbox.NewClientFromEnv(...)` only when you need low-level metrics, raw build-plane access, or explicit control/build orchestration beyond the high-level facade
+- switch to `control.NewService(...)` or `build.NewService(...)` only when you need low-level request/response control
 
 Low-level methods remain available when you need tighter request control:
 
-- use `CreateSandbox`, `ListSandboxes`, `GetSandbox`, `ConnectSandbox`
+- use `control.NewService(...)` for `CreateSandbox`, `ListSandboxes`, `GetSandbox`, `ConnectSandbox`, and related control APIs
 - continue from the returned sandbox object with `Reload()`, `Connect()`, `Resume()`, `GetInfo()`, `GetMetrics()`, `GetHost()`, `Logs()`, `Pause()`, `Refresh()`, `SetTimeout()`, `Kill()`, `Delete()`, and `IsRunning()`
 - only switch to runtime with `Runtime()` when you need file/process/stream operations
 - use `sandbox.BuildTemplate(...)`, `sandbox.BuildTemplateInBackground(...)`, `sandbox.TemplateExists(...)`, `sandbox.GetTemplateBuildStatus(...)`, `sandbox.ListTemplates(...)`, `sandbox.GetTemplate(...)`, and `sandbox.DeleteTemplate(...)` for the preferred template workflow
-- use `client.Build` only for raw template/build workflows
+- use `build.NewService(...)` only for raw template/build workflows
 - use `build.NewTemplateBuildBuilder()` when you want a small fluent helper that expands into `BuildRequest`
 
 Low-level domain packages remain available when you need direct request/response models or tighter transport control.
@@ -311,25 +310,21 @@ Low-level domain packages remain available when you need direct request/response
 
 ### Control Plane APIs
 
-`sandbox.Client` exposes control-plane methods directly:
+Preferred high-level lifecycle path:
+
+- `sandbox.Create`, `sandbox.Connect`, `sandbox.List`, `sandbox.Get`
+- follow-up control actions from the returned object: `Reload()`, `Connect()`, `Resume()`, `GetInfo()`, `GetMetrics()`, `GetHost()`, `Logs()`, `Pause()`, `Refresh()`, `SetTimeout()`, `Kill()`, `Delete()`, `IsRunning()`
+- runtime actions from objects that include `EnvdURL`: `Runtime()`
+
+Low-level control APIs live in `control.Service`:
 
 - system: `Metrics`, `Shutdown`
 - sandboxes: `CreateSandbox`, `ListSandboxes`, `GetSandbox`, `DeleteSandbox`
 - sandbox operations: `GetSandboxLogs`, `PauseSandbox`, `ConnectSandbox`, `SetSandboxTimeout`, `RefreshSandbox`, `SendHeartbeat`
 
-Recommended root-client path:
-
-- high-level lifecycle: `Create`, `Connect`, `List`, `Get`
-- template helpers: `BuildTemplate`, `BuildTemplateInBackground`, `TemplateExists`, `GetTemplateBuildStatus`, `ListTemplates`, `GetTemplate`, `DeleteTemplate`
-- low-level lifecycle: `CreateSandbox`, `ListSandboxes`, `GetSandbox`, `ConnectSandbox`
-- follow-up control actions from the returned object: `Reload()`, `Connect()`, `Resume()`, `GetInfo()`, `GetMetrics()`, `GetHost()`, `Logs()`, `Pause()`, `Refresh()`, `SetTimeout()`, `Kill()`, `Delete()`, `IsRunning()`
-- runtime actions from objects that include `EnvdURL`: `Runtime()`
-
-Low-level direct methods like `DeleteSandbox` and `GetSandboxLogs` remain available on the root client when you want explicit control-plane requests.
-
 ### Operator APIs
 
-The root client also includes operator-oriented methods such as `GetPoolStatus`, `StartRollingUpdate`, `GetRollingUpdateStatus`, and `CancelRollingUpdate`.
+`control.Service` also includes operator-oriented methods such as `GetPoolStatus`, `StartRollingUpdate`, `GetRollingUpdateStatus`, and `CancelRollingUpdate`.
 
 These routes are intended for platform operators, not normal application workloads. Keep them out of business-facing integrations unless you are explicitly building operational tooling.
 
@@ -352,9 +347,9 @@ Template builder conveniences include:
 - supported command and path options: `RunCmd(..., &sandbox.TemplateCommandOptions{User: ...})`, `GitClone(..., &sandbox.TemplateGitCloneOptions{User: ...})`, `MakeDir(..., &sandbox.TemplateMakeDirOptions{User: ...})`, `MakeSymlink(..., &sandbox.TemplateMakeSymlinkOptions{User: ...})`, `Remove(..., &sandbox.TemplateRemoveOptions{...User: ...})`, `Rename(..., &sandbox.TemplateRenameOptions{...User: ...})`
 - intentionally not exposed yet: MCP server helpers and devcontainer helpers
 
-### Build Plane Through `client.Build`
+### Build Plane Through `build.Service`
 
-Low-level `client.Build` exposes:
+Low-level `build.Service` exposes:
 
 - system: `Metrics`
 - direct build: `DirectBuild`
@@ -383,7 +378,7 @@ This matches the current public builder API contract: request fields are intenti
 
 ### Runtime Helper
 
-Low-level runtime objects returned by `createdSandbox.Runtime()` or `client.RuntimeFromSandbox(...)` expose:
+Low-level runtime objects returned by `createdSandbox.Runtime()`, `sandbox.RuntimeFromSandbox(...)`, `sandbox.RuntimeFromDetail(...)`, or `sandbox.NewRuntime(...)` expose:
 
 - system: `Metrics`, `Envs`, `Configure`, `Ports`
 - proxy and file transfer: `Proxy`, `Download`, `FilesContent`, `UploadBytes`, `UploadJSON`, `UploadMultipart`, `WriteBatch`, `ComposeFiles`, `ReadFile`, `WriteFile`
@@ -403,12 +398,12 @@ Streaming APIs return `ProcessStream`, `FilesystemWatchStream`, and `ConnectFram
 ## Resource Safety
 
 - The quick starts are written for disposable resources and should be adapted before copy-pasting into production jobs.
-- Prefer explicit cleanup with `defer createdSandbox.Delete(...)` and `defer client.Build.DeleteTemplate(...)` when running probes, smoke tests, or CI.
+- Prefer explicit cleanup with `defer createdSandbox.Delete(...)` and `defer service.DeleteTemplate(...)` when running probes, smoke tests, or CI.
 - For long-lived workloads, move cleanup and timeout policy into your own lifecycle manager instead of relying on sample code defaults.
 
 ## Package Layout
 
-- `github.com/SeaCloudAI/sandbox-go`: root client and recommended entrypoint
+- `github.com/SeaCloudAI/sandbox-go`: env-first high-level facade
 - `github.com/SeaCloudAI/sandbox-go/control`: control-plane models and low-level APIs
 - `github.com/SeaCloudAI/sandbox-go/build`: build-plane models and low-level APIs
 - `github.com/SeaCloudAI/sandbox-go/cmd`: runtime models and low-level APIs
@@ -418,7 +413,7 @@ Streaming APIs return `ProcessStream`, `FilesystemWatchStream`, and `ConnectFram
 
 - The gateway entrypoint always needs an API key. `baseURL` can come from `E2B_DOMAIN`.
 - Project-scoped deployments can set `core.WithProjectID(...)`; the SDK sends `X-Project-ID` on control/build requests.
-- Runtime access should be derived from sandbox response objects with `Runtime()` or `RuntimeFromSandbox(...)`.
+- Runtime access should be derived from sandbox response objects with `Runtime()`, `sandbox.RuntimeFromSandbox(...)`, or `sandbox.RuntimeFromDetail(...)`.
 - `CreateSandbox` and `GetSandbox` responses include `EnvdURL` and `EnvdAccessToken` when the target sandbox supports CMD access.
 - Runtime file/process APIs require a template image that starts nano-executor and returns runtime access fields; if runtime APIs return `404`, verify the selected template supports CMD runtime routes.
 - `waitReady=true` can take longer than the default HTTP timeout in production; pass `core.WithTimeout(...)` when creating long-wait clients.
@@ -433,7 +428,7 @@ Streaming APIs return `ProcessStream`, `FilesystemWatchStream`, and `ConnectFram
 ## Security
 
 - Do not commit `E2B_API_KEY`, `envdAccessToken`, or sandbox access tokens.
-- Treat runtime tokens as sandbox-scoped secrets. Prefer `createdSandbox.Runtime()` or `client.RuntimeFromSandbox(...)` so response-scoped runtime access is not copied into configuration.
+- Treat runtime tokens as sandbox-scoped secrets. Prefer `createdSandbox.Runtime()` or `sandbox.RuntimeFromSandbox(...)` so response-scoped runtime access is not copied into configuration.
 - Do not log raw API keys or runtime tokens. SDK errors may include response bodies, so avoid logging full error payloads in shared systems.
 - Set `core.WithProjectID(...)` when your gateway requires explicit project routing. The SDK sends it as `X-Project-ID`.
 

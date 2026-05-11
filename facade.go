@@ -29,12 +29,11 @@ import (
 const autoCopyPrefix = "__auto_copy__:"
 
 type CreateOptions struct {
-	TemplateID  string
-	WorkspaceID string
-	Timeout     *int32
-	Metadata    map[string]string
-	EnvVars     map[string]string
-	WaitReady   *bool
+	TemplateID string
+	Timeout    *int32
+	Metadata   map[string]string
+	EnvVars    map[string]string
+	WaitReady  *bool
 }
 
 type ConnectOptions struct {

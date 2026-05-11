@@ -3,7 +3,6 @@ package tests
 import (
 	"context"
 	"os"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +13,7 @@ import (
 )
 
 func TestIntegrationHighLevelFacade(t *testing.T) {
-	baseURL, apiKey, templateID := integrationConfig(t)
+	baseURL, _, templateID := integrationConfig(t)
 	workspaceRoot := os.Getenv("SANDBOX_TEST_SANDBOX_ROOT")
 	if workspaceRoot == "" {
 		workspaceRoot = "/root/workspace"
@@ -23,18 +22,14 @@ func TestIntegrationHighLevelFacade(t *testing.T) {
 		t.Skip("SANDBOX_TEST_TEMPLATE_ID is not set")
 	}
 
-	client, err := sandbox.NewClient(baseURL, apiKey, core.WithTimeout(180*time.Second))
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
+	client := newSDKClient(t, baseURL, core.WithTimeout(180*time.Second))
 
 	ctx := context.Background()
 	waitReady := true
 	timeout := int32(1800)
 	created, err := client.Create(ctx, templateID, &sandbox.CreateOptions{
-		WorkspaceID: "go-facade-sdk-test-" + strconv.FormatInt(time.Now().UnixNano(), 10),
-		Timeout:     &timeout,
-		WaitReady:   &waitReady,
+		Timeout:   &timeout,
+		WaitReady: &waitReady,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)

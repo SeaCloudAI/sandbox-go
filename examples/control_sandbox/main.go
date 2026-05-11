@@ -11,14 +11,8 @@ import (
 
 func main() {
 	ctx := context.Background()
-	baseURL := strings.TrimSpace(os.Getenv("SEACLOUD_BASE_URL"))
-	if baseURL == "" {
-		log.Fatal("SEACLOUD_BASE_URL is required")
-	}
-
-	apiKey := strings.TrimSpace(os.Getenv("SEACLOUD_API_KEY"))
-	if apiKey == "" {
-		log.Fatal("SEACLOUD_API_KEY is required")
+	if strings.TrimSpace(os.Getenv("E2B_API_KEY")) == "" {
+		log.Fatal("E2B_API_KEY is required")
 	}
 
 	templateID := strings.TrimSpace(os.Getenv("SANDBOX_EXAMPLE_TEMPLATE_ID"))
@@ -26,14 +20,9 @@ func main() {
 		log.Fatal("SANDBOX_EXAMPLE_TEMPLATE_ID is required")
 	}
 
-	client, err := sandbox.NewClient(baseURL, apiKey)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	waitReady := true
 	timeout := int32(1800)
-	created, err := client.Create(ctx, templateID, &sandbox.CreateOptions{
+	created, err := sandbox.Create(ctx, templateID, &sandbox.CreateOptions{
 		WaitReady: &waitReady,
 		Timeout:   &timeout,
 	})
