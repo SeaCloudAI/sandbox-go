@@ -32,7 +32,6 @@ func TestClientHighLevelHelpersReuseStoredConfig(t *testing.T) {
 			_, _ = w.Write([]byte(`{
 				"sandboxID":"sb-high",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"https://sandbox-gateway.cloud.seaart.ai",
 				"status":"running",
@@ -43,7 +42,6 @@ func TestClientHighLevelHelpersReuseStoredConfig(t *testing.T) {
 			_, _ = w.Write([]byte(`{
 				"sandboxID":"sb-high",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"https://sandbox-gateway.cloud.seaart.ai",
 				"status":"running",
@@ -89,8 +87,15 @@ func TestClientHighLevelHelpersReuseStoredConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInfo: %v", err)
 	}
+	fullInfo, err := created.GetFullInfo(context.Background())
+	if err != nil {
+		t.Fatalf("GetFullInfo: %v", err)
+	}
 	if created.SandboxID != "sb-high" || detail.SandboxID != "sb-high" {
 		t.Fatalf("sandbox = %#v detail = %#v", created, detail)
+	}
+	if fullInfo.SandboxID != "sb-high" {
+		t.Fatalf("fullInfo = %#v", fullInfo)
 	}
 
 	template := sandbox.NewTemplate().FromBaseImage().RunCmd("echo hello", nil)
@@ -108,14 +113,10 @@ func TestPackageLevelHelpersUseEnvFirstConfigAndTemplateFacade(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.URL.Path == "/api/v1/sandboxes" && r.Method == http.MethodPost:
-			if got := r.Header.Get("X-Project-ID"); got != "project-env" {
-				t.Fatalf("project header = %q", got)
-			}
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{
 				"sandboxID":"sb-env",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"https://sandbox-gateway.cloud.seaart.ai",
 				"status":"running",
@@ -123,9 +124,6 @@ func TestPackageLevelHelpersUseEnvFirstConfigAndTemplateFacade(t *testing.T) {
 				"endAt":"2026-01-01T01:00:00Z"
 			}`))
 		case r.URL.Path == "/api/v1/templates" && r.Method == http.MethodPost:
-			if got := r.Header.Get("X-Project-ID"); got != "project-env" {
-				t.Fatalf("project header = %q", got)
-			}
 			var req map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatalf("decode template request: %v", err)
@@ -154,20 +152,17 @@ func TestPackageLevelHelpersUseEnvFirstConfigAndTemplateFacade(t *testing.T) {
 	}))
 	defer server.Close()
 
-	previousBaseURL := os.Getenv("E2B_DOMAIN")
-	previousAPIKey := os.Getenv("E2B_API_KEY")
-	previousProjectID := os.Getenv("SEACLOUD_PROJECT_ID")
-	t.Setenv("E2B_DOMAIN", server.URL)
-	t.Setenv("E2B_API_KEY", "unit-auth-value")
-	t.Setenv("SEACLOUD_PROJECT_ID", "project-env")
+	previousBaseURL := os.Getenv("SEACLOUD_BASE_URL")
+	previousAPIKey := os.Getenv("SEACLOUD_API_KEY")
+	t.Setenv("SEACLOUD_BASE_URL", server.URL)
+	t.Setenv("SEACLOUD_API_KEY", "unit-auth-value")
 	defer func() {
-		_ = os.Setenv("E2B_DOMAIN", previousBaseURL)
-		_ = os.Setenv("E2B_API_KEY", previousAPIKey)
-		_ = os.Setenv("SEACLOUD_PROJECT_ID", previousProjectID)
+		_ = os.Setenv("SEACLOUD_BASE_URL", previousBaseURL)
+		_ = os.Setenv("SEACLOUD_API_KEY", previousAPIKey)
 	}()
 
 	waitReady := true
-	created, err := sandbox.Create(context.Background(), "", &sandbox.CreateOptions{WaitReady: &waitReady})
+	created, err := sandbox.Create(context.Background(), "base", &sandbox.CreateOptions{WaitReady: &waitReady})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -197,7 +192,7 @@ func TestPackageLevelHelpersUseEnvFirstConfigAndTemplateFacade(t *testing.T) {
 	}
 }
 
-func TestClientCreateAllowsMissingTemplateID(t *testing.T) {
+func TestClientCreateRequiresTemplateID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/sandboxes" || r.Method != http.MethodPost {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -217,11 +212,7 @@ func TestClientCreateAllowsMissingTemplateID(t *testing.T) {
 
 	client := newSDKClient(t, server.URL)
 
-	created, err := client.Create(context.Background(), "", nil)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if created.TemplateID != "base" {
-		t.Fatalf("templateID = %q", created.TemplateID)
+	if _, err := client.Create(context.Background(), "", nil); err == nil {
+		t.Fatal("expected Create to reject missing templateID")
 	}
 }

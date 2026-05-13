@@ -11,8 +11,8 @@ import (
 
 func main() {
 	ctx := context.Background()
-	if strings.TrimSpace(os.Getenv("E2B_API_KEY")) == "" {
-		log.Fatal("E2B_API_KEY is required")
+	if strings.TrimSpace(os.Getenv("SEACLOUD_API_KEY")) == "" {
+		log.Fatal("SEACLOUD_API_KEY is required")
 	}
 
 	templateID := strings.TrimSpace(os.Getenv("SANDBOX_EXAMPLE_TEMPLATE_ID"))
@@ -21,7 +21,7 @@ func main() {
 	}
 
 	waitReady := true
-	timeout := int32(1800)
+	timeout := int64(1800)
 	created, err := sandbox.Create(ctx, templateID, &sandbox.CreateOptions{
 		WaitReady: &waitReady,
 		Timeout:   &timeout,

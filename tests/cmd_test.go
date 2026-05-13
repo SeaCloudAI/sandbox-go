@@ -97,30 +97,6 @@ func TestCMDDownloadUsesQueryUsernameAndRange(t *testing.T) {
 	}
 }
 
-func TestCMDPortsAcceptsStatusObject(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ports" {
-			t.Fatalf("path = %s", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	}))
-	defer server.Close()
-
-	service, err := cmd.NewService(server.URL, "unit-runtime-auth")
-	if err != nil {
-		t.Fatalf("NewService: %v", err)
-	}
-
-	resp, err := service.Ports(context.Background())
-	if err != nil {
-		t.Fatalf("Ports: %v", err)
-	}
-	if len(resp) != 0 {
-		t.Fatalf("ports = %#v", resp)
-	}
-}
-
 func TestCMDEnvsConfigureAndPorts(t *testing.T) {
 	calls := make([]struct {
 		path   string

@@ -46,10 +46,8 @@ func TestCreateSandbox(t *testing.T) {
 			"templateID":"base",
 			"sandboxID":"sb-123",
 			"clientID":"user-1",
-			"envdVersion":"atlas-0.1.0",
 			"envdAccessToken":"unit-runtime-auth",
 			"envdUrl":"https://sandbox-gateway.cloud.seaart.ai",
-			"trafficAccessToken":null,
 			"status":"starting",
 			"state":"starting",
 			"startedAt":"2024-01-01T00:00:00Z",
@@ -80,19 +78,19 @@ func TestCreateSandbox(t *testing.T) {
 	}
 }
 
-func TestCreateSandboxAllowsMissingTemplateID(t *testing.T) {
+func TestCreateSandboxRequiresTemplateID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		if _, ok := req["templateID"]; ok {
-			t.Fatalf("unexpected templateID in request: %#v", req)
+		if req["templateID"] != "base" {
+			t.Fatalf("templateID = %#v", req["templateID"])
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"sandboxID":"sb-234","clientID":"user-1","envdVersion":"atlas-0.1.0","status":"starting","startedAt":"2024-01-01T00:00:00Z","endAt":"2024-01-01T01:00:00Z"}`))
+		_, _ = w.Write([]byte(`{"sandboxID":"sb-234","clientID":"user-1","status":"starting","startedAt":"2024-01-01T00:00:00Z","endAt":"2024-01-01T01:00:00Z"}`))
 	}))
 	defer server.Close()
 
@@ -101,7 +99,11 @@ func TestCreateSandboxAllowsMissingTemplateID(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	resp, err := service.CreateSandbox(context.Background(), &control.NewSandboxRequest{WaitReady: boolPtr(true)})
+	if _, err := service.CreateSandbox(context.Background(), &control.NewSandboxRequest{WaitReady: boolPtr(true)}); err == nil {
+		t.Fatal("expected missing templateID to be rejected")
+	}
+
+	resp, err := service.CreateSandbox(context.Background(), &control.NewSandboxRequest{TemplateID: "base", WaitReady: boolPtr(true)})
 	if err != nil {
 		t.Fatalf("CreateSandbox: %v", err)
 	}
@@ -157,7 +159,6 @@ func TestRootListSandboxesReturnsBoundHandles(t *testing.T) {
 			_, _ = w.Write([]byte(`[{
 				"sandboxID":"sb-1",
 				"clientID":"user-1",
-				"envdVersion":"v1",
 				"status":"running"
 			}]`))
 		case strings.HasSuffix(r.URL.Path, "/logs"):
@@ -166,7 +167,6 @@ func TestRootListSandboxesReturnsBoundHandles(t *testing.T) {
 			_, _ = w.Write([]byte(`{
 				"sandboxID":"sb-1",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"https://sandbox-gateway.cloud.seaart.ai",
 				"status":"running",
@@ -546,7 +546,6 @@ func TestBoundSandboxHelpersUseStoredClient(t *testing.T) {
 			_, _ = w.Write([]byte(`{
 				"sandboxID":"sb-1",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"https://sandbox-gateway.cloud.seaart.ai",
 				"status":"running",
@@ -559,7 +558,6 @@ func TestBoundSandboxHelpersUseStoredClient(t *testing.T) {
 			_, _ = w.Write([]byte(`{
 				"sandboxID":"sb-1",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"https://sandbox-gateway.cloud.seaart.ai",
 				"status":"running",
@@ -667,7 +665,7 @@ func TestBoundaryValuesThroughPublicAPIs(t *testing.T) {
 	if _, err := service.ConnectSandbox(context.Background(), "sb", &control.ConnectSandboxRequest{Timeout: 0}); err != nil {
 		t.Fatalf("ConnectSandbox boundary: %v", err)
 	}
-	if err := service.SetSandboxTimeout(context.Background(), "sb", &control.TimeoutRequest{Timeout: 86400}); err != nil {
+	if err := service.SetSandboxTimeout(context.Background(), "sb", &control.TimeoutRequest{Timeout: 86_400}); err != nil {
 		t.Fatalf("SetSandboxTimeout boundary: %v", err)
 	}
 	zeroRefresh := int32(0)

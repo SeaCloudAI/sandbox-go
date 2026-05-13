@@ -41,18 +41,6 @@ func (c *Service) Metrics(ctx context.Context) (string, error) {
 	return string(body), nil
 }
 
-func (c *Service) DirectBuild(ctx context.Context, req *DirectBuildRequest) (*DirectBuildResponse, error) {
-	if req == nil {
-		return nil, fmt.Errorf("sandbox: direct build request is required")
-	}
-
-	var resp DirectBuildResponse
-	if _, err := c.DoJSON(ctx, http.MethodPost, "/build", nil, nil, req, &resp, http.StatusAccepted); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
 func (c *Service) CreateTemplate(ctx context.Context, req *TemplateCreateRequest) (*TemplateCreateResponse, error) {
 	if err := validateTemplateCreateRequest(req); err != nil {
 		return nil, err
@@ -294,13 +282,41 @@ func (c *Service) GetBuildLogs(ctx context.Context, templateID, buildID string, 
 	return &resp, nil
 }
 
+func (c *Service) AssignTemplateTags(ctx context.Context, req *AssignTemplateTagsRequest) (*AssignedTemplateTags, error) {
+	if err := validateAssignTemplateTagsRequest(req); err != nil {
+		return nil, err
+	}
+	var resp AssignedTemplateTags
+	if _, err := c.DoJSON(ctx, http.MethodPost, "/api/v1/templates/tags", nil, nil, req, &resp, http.StatusCreated); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Service) DeleteTemplateTags(ctx context.Context, req *DeleteTemplateTagsRequest) error {
+	if err := validateDeleteTemplateTagsRequest(req); err != nil {
+		return err
+	}
+	_, err := c.DoJSON(ctx, http.MethodDelete, "/api/v1/templates/tags", nil, nil, req, nil, http.StatusNoContent)
+	return err
+}
+
+func (c *Service) ListTemplateTags(ctx context.Context, templateID string) ([]TemplateTag, error) {
+	if strings.TrimSpace(templateID) == "" {
+		return nil, ErrTemplateEmpty
+	}
+	var resp []TemplateTag
+	path := "/api/v1/templates/" + url.PathEscape(templateID) + "/tags"
+	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 func (p *ListTemplatesParams) encode() url.Values {
 	values := make(url.Values)
 	if visibility := strings.TrimSpace(p.Visibility); visibility != "" {
 		values.Set("visibility", visibility)
-	}
-	if teamID := strings.TrimSpace(p.TeamID); teamID != "" {
-		values.Set("teamID", teamID)
 	}
 	if p.Limit > 0 {
 		values.Set("limit", strconv.Itoa(p.Limit))
@@ -387,10 +403,30 @@ func validateTemplateCreateRequest(req *TemplateCreateRequest) error {
 }
 
 func validateTemplateUpdateRequest(req *TemplateUpdateRequest) error {
-	if req == nil {
-		return nil
+	return nil
+}
+
+func validateAssignTemplateTagsRequest(req *AssignTemplateTagsRequest) error {
+	if req == nil || strings.TrimSpace(req.Target) == "" {
+		return fmt.Errorf("sandbox: target is required")
 	}
-	return validatePublicTemplateExtensions(req.Extensions)
+	return validateTags(req.Tags)
+}
+
+func validateDeleteTemplateTagsRequest(req *DeleteTemplateTagsRequest) error {
+	if req == nil || strings.TrimSpace(req.Name) == "" {
+		return fmt.Errorf("sandbox: name is required")
+	}
+	return validateTags(req.Tags)
+}
+
+func validateTags(tags []string) error {
+	for _, tag := range tags {
+		if strings.TrimSpace(tag) != "" {
+			return nil
+		}
+	}
+	return fmt.Errorf("sandbox: tags are required")
 }
 
 func validatePublicTemplateExtensions(ext *PublicTemplateExtensions) error {
@@ -412,16 +448,6 @@ func validateBuildRequest(req *BuildRequest) error {
 			return err
 		}
 	}
-	hash := strings.TrimSpace(req.FilesHash)
-	if hash != "" {
-		if !sha256Pattern.MatchString(hash) {
-			return fmt.Errorf("sandbox: filesHash must be a 64-character lowercase hex SHA256")
-		}
-	}
-	if mode := strings.TrimSpace(req.RuntimeMode); mode != "" && mode != "managed" && mode != "plain" {
-		return fmt.Errorf("sandbox: runtimeMode must be \"managed\" or \"plain\"")
-	}
-
 	for i, step := range req.Steps {
 		stepType := strings.ToUpper(strings.TrimSpace(step.Type))
 		switch stepType {
@@ -478,6 +504,29 @@ func validateRegistryConfig(config map[string]any) error {
 	return nil
 }
 
+func dedupeTrimmedStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func asString(v any) string {
 	s, _ := v.(string)
 	return s
@@ -526,8 +575,6 @@ func isZeroBuildRequest(req *BuildRequest) bool {
 		req.FromImageRegistry == nil &&
 		req.Force == nil &&
 		len(req.Steps) == 0 &&
-		strings.TrimSpace(req.FilesHash) == "" &&
-		strings.TrimSpace(req.RuntimeMode) == "" &&
 		strings.TrimSpace(req.StartCmd) == "" &&
 		strings.TrimSpace(req.ReadyCmd) == ""
 }

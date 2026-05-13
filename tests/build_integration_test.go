@@ -21,49 +21,6 @@ func TestIntegrationBuildPlane(t *testing.T) {
 
 	ctx := context.Background()
 
-	t.Run("direct build polling", func(t *testing.T) {
-		resp, err := service.DirectBuild(ctx, &build.DirectBuildRequest{
-			Project:    "sdk-build-integration",
-			Image:      "go-direct-build",
-			Tag:        fmt.Sprintf("t%d", time.Now().Unix()),
-			Dockerfile: "FROM alpine:3.20\nRUN echo direct-build-test >/tmp/direct-build.txt\n",
-		})
-		if err != nil {
-			t.Fatalf("DirectBuild: %v", err)
-		}
-		if resp.TemplateID == "" || resp.BuildID == "" || resp.ImageFullName == "" {
-			t.Fatalf("response = %#v", resp)
-		}
-
-		defer func() {
-			if err := service.DeleteTemplate(ctx, resp.TemplateID); err != nil && !isBuildNotFound(err) {
-				t.Fatalf("DeleteTemplate: %v", err)
-			}
-		}()
-
-		status := waitForBuildReady(t, ctx, service, resp.TemplateID, resp.BuildID)
-		if status.Status != "ready" {
-			t.Fatalf("final status = %#v", status)
-		}
-
-		buildResp, err := service.GetBuild(ctx, resp.TemplateID, resp.BuildID)
-		if err != nil {
-			t.Fatalf("GetBuild: %v", err)
-		}
-		if buildResp.Status != "ready" {
-			t.Fatalf("build = %#v", buildResp)
-		}
-
-		limit := 10
-		logs, err := service.GetBuildLogs(ctx, resp.TemplateID, resp.BuildID, &build.BuildLogsParams{Limit: &limit})
-		if err != nil {
-			t.Fatalf("GetBuildLogs: %v", err)
-		}
-		if logs.Logs == nil {
-			t.Fatal("logs response is nil")
-		}
-	})
-
 	t.Run("template lifecycle", func(t *testing.T) {
 		name := "go-build-sdk-" + time.Now().UTC().Format("20060102150405")
 		created, err := service.CreateTemplate(ctx, &build.TemplateCreateRequest{
@@ -132,11 +89,8 @@ func TestIntegrationBuildPlane(t *testing.T) {
 			t.Fatal("template detail builds is empty")
 		}
 
-		updated, err := service.UpdateTemplate(ctx, templateID, &build.TemplateUpdateRequest{
-			Extensions: &build.PublicTemplateExtensions{
-				Envs: map[string]string{"SDK_TEST": "1"},
-			},
-		})
+		public := false
+		updated, err := service.UpdateTemplate(ctx, templateID, &build.TemplateUpdateRequest{Public: &public})
 		if err != nil {
 			t.Fatalf("UpdateTemplate: %v", err)
 		}

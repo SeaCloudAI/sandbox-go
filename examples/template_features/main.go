@@ -23,7 +23,7 @@ var terminalBuildStatuses = map[string]bool{
 
 func main() {
 	ctx := context.Background()
-	mustEnv("E2B_API_KEY")
+	mustEnv("SEACLOUD_API_KEY")
 	image := strings.TrimSpace(os.Getenv("SANDBOX_EXAMPLE_BUILD_IMAGE"))
 	if image == "" {
 		image = "docker.io/library/alpine:3.20"

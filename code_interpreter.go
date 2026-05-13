@@ -72,20 +72,20 @@ type CodeContext struct {
 	ContextID string `json:"contextId"`
 	CWD       string `json:"cwd,omitempty"`
 	Language  string `json:"language"`
-	Timeout   *int   `json:"timeout,omitempty"`
+	TimeoutMS *int64 `json:"timeoutMs,omitempty"`
 }
 
 type CodeContextCreateOptions struct {
-	CWD      string
-	Language string
-	Timeout  *int
+	CWD       string
+	Language  string
+	TimeoutMS *int64
 }
 
 type RunCodeOptions struct {
 	Language  string
 	CWD       string
 	Envs      map[string]string
-	Timeout   *int
+	TimeoutMS *int64
 	Context   *CodeContext
 	OnStdout  func(CodeOutputChunk)
 	OnStderr  func(CodeOutputChunk)
@@ -339,6 +339,10 @@ func runCodeWithRuntime(ctx context.Context, runtime *Runtime, code string, opts
 	}, nil); err != nil {
 		return nil, err
 	}
+	timeoutMS, err := resolvePositiveRuntimeTimeoutMilliseconds(opts.TimeoutMS)
+	if err != nil {
+		return nil, err
+	}
 
 	stream, err := runtime.Start(ctx, &cmd.ProcessStartRequest{
 		Process: &cmd.ProcessConfig{
@@ -347,7 +351,7 @@ func runCodeWithRuntime(ctx context.Context, runtime *Runtime, code string, opts
 			Envs: opts.Envs,
 			CWD:  stringPtr(opts.CWD),
 		},
-		Timeout: opts.Timeout,
+		TimeoutMS: timeoutMS,
 	}, nil)
 	if err != nil {
 		return nil, err
@@ -694,9 +698,9 @@ func newCodeContext(opts *CodeContextCreateOptions) *CodeContext {
 		if strings.TrimSpace(opts.Language) != "" {
 			context.Language = normalizeLanguage(opts.Language)
 		}
-		if opts.Timeout != nil {
-			value := *opts.Timeout
-			context.Timeout = &value
+		if opts.TimeoutMS != nil {
+			value := *opts.TimeoutMS
+			context.TimeoutMS = &value
 		}
 	}
 	return context
@@ -711,9 +715,9 @@ func newDefaultPythonCodeContext(opts *RunCodeOptions) *CodeContext {
 		if strings.TrimSpace(opts.CWD) != "" {
 			context.CWD = strings.TrimSpace(opts.CWD)
 		}
-		if opts.Timeout != nil {
-			value := *opts.Timeout
-			context.Timeout = &value
+		if opts.TimeoutMS != nil {
+			value := *opts.TimeoutMS
+			context.TimeoutMS = &value
 		}
 	}
 	return context
@@ -724,9 +728,9 @@ func cloneCodeContext(context *CodeContext) *CodeContext {
 		return nil
 	}
 	cloned := *context
-	if context.Timeout != nil {
-		value := *context.Timeout
-		cloned.Timeout = &value
+	if context.TimeoutMS != nil {
+		value := *context.TimeoutMS
+		cloned.TimeoutMS = &value
 	}
 	return &cloned
 }
@@ -750,14 +754,18 @@ func (s *PythonCodeContextSession) start(ctx context.Context) error {
 	}, nil); err != nil {
 		return err
 	}
+	timeoutMS, err := resolvePositiveRuntimeTimeoutMilliseconds(s.context.TimeoutMS)
+	if err != nil {
+		return err
+	}
 	stream, err := s.runtime.Start(ctx, &cmd.ProcessStartRequest{
 		Process: &cmd.ProcessConfig{
 			Cmd:  "python3",
 			Args: []string{"-u", s.scriptPath},
 			CWD:  stringPtr(s.context.CWD),
 		},
-		Stdin:   boolPtr(true),
-		Timeout: s.context.Timeout,
+		Stdin:     boolPtr(true),
+		TimeoutMS: timeoutMS,
 	}, nil)
 	if err != nil {
 		return err
@@ -791,18 +799,18 @@ func (s *PythonCodeContextSession) Execute(ctx context.Context, code string, opt
 	if !isPythonLanguage(firstNonEmptyCI(opts.Language, s.context.Language)) {
 		return nil, fmt.Errorf("sandbox: code contexts currently support python only")
 	}
+	resolvedTimeoutMS := opts.TimeoutMS
+	if resolvedTimeoutMS == nil {
+		resolvedTimeoutMS = s.context.TimeoutMS
+	}
+	timeoutMS, err := resolvePositiveRuntimeTimeoutMilliseconds(resolvedTimeoutMS)
+	if err != nil {
+		return nil, err
+	}
 	request := map[string]any{
-		"code": base64.StdEncoding.EncodeToString([]byte(code)),
-		"cwd":  firstNonEmptyCI(opts.CWD, s.context.CWD),
-		"timeout": func() any {
-			if opts.Timeout != nil {
-				return *opts.Timeout
-			}
-			if s.context.Timeout != nil {
-				return *s.context.Timeout
-			}
-			return nil
-		}(),
+		"code":      base64.StdEncoding.EncodeToString([]byte(code)),
+		"cwd":       firstNonEmptyCI(opts.CWD, s.context.CWD),
+		"timeoutMs": timeoutMSValue(timeoutMS),
 	}
 	payload, err := json.Marshal(request)
 	if err != nil {
@@ -959,9 +967,9 @@ func mergeContextRunCodeOptions(contextDef *CodeContext, opts *RunCodeOptions) *
 	if strings.TrimSpace(merged.CWD) == "" {
 		merged.CWD = contextDef.CWD
 	}
-	if merged.Timeout == nil && contextDef.Timeout != nil {
-		value := *contextDef.Timeout
-		merged.Timeout = &value
+	if merged.TimeoutMS == nil && contextDef.TimeoutMS != nil {
+		value := *contextDef.TimeoutMS
+		merged.TimeoutMS = &value
 	}
 	return merged
 }
@@ -1131,6 +1139,13 @@ func maxInt(value, fallback int) int {
 
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+func timeoutMSValue(timeoutMS *int64) any {
+	if timeoutMS == nil {
+		return nil
+	}
+	return *timeoutMS
 }
 
 func buildPythonWrapperSource(code, resultPath string) string {

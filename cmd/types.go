@@ -169,11 +169,11 @@ type RemoveWatcherRequest struct {
 }
 
 type ProcessStartRequest struct {
-	Process *ProcessConfig `json:"process"`
-	Timeout *int           `json:"timeout,omitempty"`
-	Tag     string         `json:"tag,omitempty"`
-	Stdin   *bool          `json:"stdin,omitempty"`
-	PTY     *PtyConfig     `json:"pty,omitempty"`
+	Process   *ProcessConfig `json:"process"`
+	TimeoutMS *int64         `json:"timeoutMs,omitempty"`
+	Tag       string         `json:"tag,omitempty"`
+	Stdin     *bool          `json:"stdin,omitempty"`
+	PTY       *PtyConfig     `json:"pty,omitempty"`
 }
 
 type ConnectRequest struct {
@@ -335,12 +335,12 @@ type ConfigureRequest struct {
 }
 
 type AgentRunRequest struct {
-	Cmd     string            `json:"cmd"`
-	Args    []string          `json:"args,omitempty"`
-	CWD     string            `json:"cwd,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	Timeout *int              `json:"timeout,omitempty"`
-	Stdin   *string           `json:"stdin,omitempty"`
+	Cmd       string            `json:"cmd"`
+	Args      []string          `json:"args,omitempty"`
+	CWD       string            `json:"cwd,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	TimeoutMS *int64            `json:"timeoutMs,omitempty"`
+	Stdin     *string           `json:"stdin,omitempty"`
 }
 
 type AgentRunResponse struct {

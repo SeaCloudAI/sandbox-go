@@ -63,7 +63,7 @@ func TestIntegrationControlPlane(t *testing.T) {
 			t.Skip("SANDBOX_TEST_TEMPLATE_ID is not set")
 		}
 
-		timeout := int32(1800)
+		timeout := int64(1800)
 		waitReady := true
 
 		created, err := service.CreateSandbox(ctx, &control.NewSandboxRequest{

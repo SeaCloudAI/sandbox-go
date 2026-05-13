@@ -14,62 +14,6 @@ import (
 	"github.com/SeaCloudAI/sandbox-go/core"
 )
 
-func TestDirectBuild(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Fatalf("method = %s, want POST", r.Method)
-		}
-		if r.URL.Path != "/build" {
-			t.Fatalf("path = %s", r.URL.Path)
-		}
-		if got := r.Header.Get("X-Namespace-ID"); got != "" {
-			t.Fatalf("unexpected namespace header = %q", got)
-		}
-		if got := r.Header.Get("X-Project-ID"); got != "project-1" {
-			t.Fatalf("project header = %q", got)
-		}
-
-		var req build.DirectBuildRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
-		if req.Project != "proj" || req.Image != "app" || req.Tag != "v1" {
-			t.Fatalf("request = %#v", req)
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		_, _ = w.Write([]byte(`{
-			"templateID":"tpl-1",
-			"buildID":"build-1",
-			"imageFullName":"example-image:v1"
-		}`))
-	}))
-	defer server.Close()
-
-	service, err := build.NewService(
-		server.URL,
-		"unit-auth-value",
-		core.WithProjectID("project-1"),
-	)
-	if err != nil {
-		t.Fatalf("NewService: %v", err)
-	}
-
-	resp, err := service.DirectBuild(context.Background(), &build.DirectBuildRequest{
-		Project:    "proj",
-		Image:      "app",
-		Tag:        "v1",
-		Dockerfile: "FROM alpine:3.20",
-	})
-	if err != nil {
-		t.Fatalf("DirectBuild: %v", err)
-	}
-	if resp.TemplateID != "tpl-1" || resp.BuildID != "build-1" {
-		t.Fatalf("response = %#v", resp)
-	}
-}
-
 func TestCreateTemplateUsesGatewayAuthOnly(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req build.TemplateCreateRequest
@@ -188,8 +132,7 @@ func TestGetTemplateDecodesFullResponse(t *testing.T) {
 					"diskSizeMB":5120,
 					"envdVersion":"sandbox-builder-v1"
 				}
-			],
-			"nextToken":"build-next"
+			]
 		}`))
 	}))
 	defer server.Close()
@@ -230,7 +173,7 @@ func TestGetTemplateDecodesFullResponse(t *testing.T) {
 	if len(resp.Builds) != 1 || resp.Builds[0].Status != "ready" {
 		t.Fatalf("builds = %#v", resp.Builds)
 	}
-	if resp.NextToken != "build-next" || resp.Builds[0].MemoryMB != 1024 {
+	if resp.Builds[0].MemoryMB != 1024 {
 		t.Fatalf("unexpected fields = %#v", resp)
 	}
 }
@@ -241,7 +184,7 @@ func TestListTemplatesEncodesQuery(t *testing.T) {
 		if got := q.Get("visibility"); got != "team" {
 			t.Fatalf("visibility = %q", got)
 		}
-		if got := q.Get("teamID"); got != "ns-1" {
+		if got := q.Get("teamID"); got != "" {
 			t.Fatalf("teamID = %q", got)
 		}
 		if got := q.Get("limit"); got != "20" {
@@ -271,7 +214,6 @@ func TestListTemplatesEncodesQuery(t *testing.T) {
 
 	resp, err := service.ListTemplates(context.Background(), &build.ListTemplatesParams{
 		Visibility: "team",
-		TeamID:     "ns-1",
 		Limit:      20,
 		Offset:     40,
 	})
@@ -299,13 +241,32 @@ func TestTemplateValidationRejectsUnsupportedPublicExtensions(t *testing.T) {
 		t.Fatalf("CreateTemplate error = %v", err)
 	}
 
-	_, err = service.UpdateTemplate(context.Background(), "tpl-1", &build.TemplateUpdateRequest{
-		Extensions: &build.PublicTemplateExtensions{
-			Visibility: "official",
-		},
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/v1/templates/tpl-1" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		var req build.TemplateUpdateRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode update request: %v", err)
+		}
+		if req.Public == nil || *req.Public {
+			t.Fatalf("public = %#v", req.Public)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"names":["demo"]}`))
+	}))
+	defer server.Close()
+
+	updateService, err := build.NewService(server.URL, "unit-auth-value")
+	if err != nil {
+		t.Fatalf("NewService update: %v", err)
+	}
+	public := false
+	_, err = updateService.UpdateTemplate(context.Background(), "tpl-1", &build.TemplateUpdateRequest{
+		Public: &public,
 	})
-	if err == nil || !strings.Contains(err.Error(), "extensions.visibility=official is not supported by the public SDK") {
-		t.Fatalf("UpdateTemplate error = %v", err)
+	if err != nil {
+		t.Fatalf("UpdateTemplate public error = %v", err)
 	}
 }
 
@@ -382,7 +343,6 @@ func TestTemplateBuildBuilderRequest(t *testing.T) {
 		User("node", nil).
 		StartCmd("npm start").
 		ReadyCmd("test-ready-command").
-		FilesHash(strings.Repeat("b", 64)).
 		Request()
 
 	if request.FromImage != "docker.io/library/node:20" {
@@ -509,7 +469,7 @@ func TestCreateBuildEncodesSupportedFields(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		if req.FromImage != "docker.io/library/node:20" || req.FilesHash != strings.Repeat("a", 64) {
+		if req.FromImage != "docker.io/library/node:20" {
 			t.Fatalf("request = %#v", req)
 		}
 		if req.FromImageRegistry["type"] != "registry" || req.FromImageRegistry["username"] != "robot" {
@@ -536,7 +496,6 @@ func TestCreateBuildEncodesSupportedFields(t *testing.T) {
 	resp, err := service.CreateBuild(context.Background(), "tpl-1", "build-encoded", &build.BuildRequest{
 		FromImage:         "docker.io/library/node:20",
 		FromImageRegistry: map[string]any{"type": "registry", "username": "robot", "password": "secret"},
-		FilesHash:         strings.Repeat("a", 64),
 		Steps: []build.BuildStep{
 			{Type: "COPY", FilesHash: strings.Repeat("a", 64), Args: []string{"package.json", "/app/package.json"}},
 			{Type: "RUN", Args: []string{"npm install"}},
@@ -585,16 +544,6 @@ func TestBuildValidationErrors(t *testing.T) {
 				return err
 			},
 			want: "buildID must be",
-		},
-		{
-			name: "invalid files hash",
-			fn: func() error {
-				_, err := service.CreateBuild(context.Background(), "tpl-1", "build-test", &build.BuildRequest{
-					FilesHash: "abc",
-				})
-				return err
-			},
-			want: "filesHash must be",
 		},
 		{
 			name: "missing step type",

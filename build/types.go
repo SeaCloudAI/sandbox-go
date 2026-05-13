@@ -2,21 +2,6 @@ package build
 
 import "time"
 
-// DirectBuildRequest is the request body for POST /build.
-type DirectBuildRequest struct {
-	Project    string `json:"project"`
-	Image      string `json:"image"`
-	Tag        string `json:"tag"`
-	Dockerfile string `json:"dockerfile"`
-}
-
-// DirectBuildResponse is returned by POST /build.
-type DirectBuildResponse struct {
-	TemplateID    string `json:"templateID"`
-	BuildID       string `json:"buildID"`
-	ImageFullName string `json:"imageFullName"`
-}
-
 type PublicTemplateExtensions struct {
 	BaseTemplateID string                `json:"baseTemplateID,omitempty"`
 	Visibility     string                `json:"visibility,omitempty"`
@@ -38,7 +23,6 @@ type TemplateExtensions struct {
 	ProjectID      string                `json:"projectID,omitempty"`
 	TTLSeconds     *int32                `json:"ttlSeconds,omitempty"`
 	Port           *int32                `json:"port,omitempty"`
-	RuntimeMode    string                `json:"runtimeMode,omitempty"`
 	StartCmd       string                `json:"startCmd,omitempty"`
 	ReadyCmd       string                `json:"readyCmd,omitempty"`
 }
@@ -59,7 +43,7 @@ type TemplateCreateRequest struct {
 
 // TemplateUpdateRequest is the request body for PATCH /api/v1/templates/:id.
 type TemplateUpdateRequest struct {
-	Extensions *PublicTemplateExtensions `json:"extensions,omitempty"`
+	Public *bool `json:"public,omitempty"`
 }
 
 // TemplateCreateResponse is the minimal create response.
@@ -80,7 +64,6 @@ type TemplateUpdateResponse struct {
 // ListTemplatesParams configures GET /api/v1/templates.
 type ListTemplatesParams struct {
 	Visibility string
-	TeamID     string
 	Limit      int
 	Offset     int
 }
@@ -147,6 +130,7 @@ type TemplateResponse struct {
 	Public                bool                 `json:"public"`
 	Aliases               []string             `json:"aliases"`
 	Names                 []string             `json:"names"`
+	Tags                  []string             `json:"tags,omitempty"`
 	CreatedBy             *TemplateUser        `json:"createdBy,omitempty"`
 	CreatedAt             time.Time            `json:"createdAt"`
 	UpdatedAt             time.Time            `json:"updatedAt"`
@@ -155,7 +139,6 @@ type TemplateResponse struct {
 	BuildCount            *int32               `json:"buildCount,omitempty"`
 	EnvdVersion           string               `json:"envdVersion,omitempty"`
 	Builds                []TemplateBuild      `json:"builds,omitempty"`
-	NextToken             string               `json:"nextToken,omitempty"`
 	Type                  string               `json:"type,omitempty"`
 	Version               string               `json:"version,omitempty"`
 	Name                  string               `json:"name,omitempty"`
@@ -196,7 +179,6 @@ type TemplateResponse struct {
 	ProbeTimeoutSecs      *int32               `json:"probeTimeoutSecs,omitempty"`
 	GatewayURL            string               `json:"gatewayURL,omitempty"`
 	HeartbeatIntervalSecs *int32               `json:"heartbeatIntervalSecs,omitempty"`
-	RuntimeMode           string               `json:"runtimeMode,omitempty"`
 	StartCmd              string               `json:"startCmd,omitempty"`
 	ReadyCmd              string               `json:"readyCmd,omitempty"`
 	Extensions            *TemplateExtensions  `json:"extensions,omitempty"`
@@ -230,8 +212,6 @@ type BuildRequest struct {
 	FromImageRegistry map[string]any `json:"fromImageRegistry,omitempty"`
 	Force             *bool          `json:"force,omitempty"`
 	Steps             []BuildStep    `json:"steps,omitempty"`
-	FilesHash         string         `json:"filesHash,omitempty"`
-	RuntimeMode       string         `json:"runtimeMode,omitempty"`
 	StartCmd          string         `json:"startCmd,omitempty"`
 	ReadyCmd          string         `json:"readyCmd,omitempty"`
 }
@@ -283,8 +263,6 @@ type BuildStatusResponse struct {
 	Logs       []string        `json:"logs"`
 	LogEntries []BuildLogEntry `json:"logEntries"`
 	Reason     any             `json:"reason"`
-	CreatedAt  time.Time       `json:"createdAt"`
-	UpdatedAt  time.Time       `json:"updatedAt"`
 }
 
 // BuildLogsParams configures GET /logs.
@@ -307,4 +285,25 @@ type BuildLogEntry struct {
 // BuildLogsResponse wraps structured build logs.
 type BuildLogsResponse struct {
 	Logs []BuildLogEntry `json:"logs"`
+}
+
+type AssignTemplateTagsRequest struct {
+	Target string   `json:"target"`
+	Tags   []string `json:"tags"`
+}
+
+type AssignedTemplateTags struct {
+	Tags    []string `json:"tags"`
+	BuildID string   `json:"buildID"`
+}
+
+type DeleteTemplateTagsRequest struct {
+	Name string   `json:"name"`
+	Tags []string `json:"tags"`
+}
+
+type TemplateTag struct {
+	Tag       string    `json:"tag"`
+	BuildID   string    `json:"buildID"`
+	CreatedAt time.Time `json:"createdAt"`
 }

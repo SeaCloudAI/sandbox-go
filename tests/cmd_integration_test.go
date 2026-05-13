@@ -29,7 +29,7 @@ func TestIntegrationCMD(t *testing.T) {
 	client := newSDKClient(t, baseURL)
 
 	ctx := context.Background()
-	timeout := int32(1800)
+	timeout := int64(1800)
 	waitReady := true
 
 	created, err := client.CreateSandbox(ctx, &control.NewSandboxRequest{

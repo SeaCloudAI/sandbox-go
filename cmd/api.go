@@ -38,28 +38,11 @@ func (c *Service) Configure(ctx context.Context, req *ConfigureRequest) error {
 }
 
 func (c *Service) Ports(ctx context.Context) ([]PortEntry, error) {
-	var raw json.RawMessage
-	if _, err := c.doJSON(ctx, http.MethodGet, "/ports", nil, nil, &raw, "", "", nil, http.StatusOK); err != nil {
+	var resp []PortEntry
+	if _, err := c.doJSON(ctx, http.MethodGet, "/ports", nil, nil, &resp, "", "", nil, http.StatusOK); err != nil {
 		return nil, err
 	}
-	// Older runtime images can return {"status":"ok"} when no port inventory is available.
-	var resp []PortEntry
-	if json.Unmarshal(raw, &resp) == nil {
-		return resp, nil
-	}
-	var wrapped struct {
-		Ports []PortEntry `json:"ports"`
-		Data  []PortEntry `json:"data"`
-	}
-	if json.Unmarshal(raw, &wrapped) == nil {
-		if wrapped.Ports != nil {
-			return wrapped.Ports, nil
-		}
-		if wrapped.Data != nil {
-			return wrapped.Data, nil
-		}
-	}
-	return []PortEntry{}, nil
+	return resp, nil
 }
 
 func (c *Service) Proxy(ctx context.Context, req *ProxyRequest) (*http.Response, error) {

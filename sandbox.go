@@ -2,8 +2,10 @@ package sandbox
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/SeaCloudAI/sandbox-go/cmd"
 	"github.com/SeaCloudAI/sandbox-go/control"
@@ -38,6 +40,21 @@ type SandboxHandle struct {
 type ConnectSandboxResponse struct {
 	StatusCode int
 	Sandbox    *Sandbox
+}
+
+type SandboxInfo struct {
+	SandboxID          string
+	TemplateID         string
+	SandboxDomain      string
+	StartedAt          time.Time
+	EndAt              time.Time
+	State              string
+	Metadata           map[string]string
+	Name               string
+	CPUCount           int32
+	MemoryMB           int32
+	EnvdAccessToken    string
+	TrafficAccessToken string
 }
 
 func (g *gatewayServices) createSandbox(ctx context.Context, req *control.NewSandboxRequest) (*Sandbox, error) {
@@ -107,7 +124,7 @@ func (s *Sandbox) Reload(ctx context.Context) (*SandboxDetail, error) {
 }
 
 // Resume reconnects to a paused sandbox and returns the running sandbox handle.
-func (s *Sandbox) Resume(ctx context.Context, timeout int32) (*Sandbox, error) {
+func (s *Sandbox) Resume(ctx context.Context, timeout int64) (*Sandbox, error) {
 	if timeout < 0 {
 		timeout = 300
 	}
@@ -119,8 +136,21 @@ func (s *Sandbox) Resume(ctx context.Context, timeout int32) (*Sandbox, error) {
 }
 
 // GetInfo fetches the latest sandbox detail for this sandbox ID.
-func (s *Sandbox) GetInfo(ctx context.Context) (*SandboxDetail, error) {
-	return s.gateway.getSandbox(ctx, s.SandboxID)
+func (s *Sandbox) GetInfo(ctx context.Context) (*SandboxInfo, error) {
+	detail, err := s.gateway.getSandbox(ctx, s.SandboxID)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeSandboxInfo(detail.SandboxDetail), nil
+}
+
+// GetFullInfo fetches the latest full sandbox detail for this sandbox ID.
+func (s *Sandbox) GetFullInfo(ctx context.Context) (*SandboxInfo, error) {
+	detail, err := s.gateway.getSandbox(ctx, s.SandboxID)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeSandboxInfo(detail.SandboxDetail), nil
 }
 
 // GetMetrics reads runtime metrics for sandboxes that expose nano-executor access.
@@ -136,8 +166,16 @@ func (s *Sandbox) Logs(ctx context.Context, params *control.SandboxLogsParams) (
 	return s.gateway.control.GetSandboxLogs(ctx, s.SandboxID, params)
 }
 
-func (s *Sandbox) Pause(ctx context.Context) error {
-	return s.gateway.control.PauseSandbox(ctx, s.SandboxID)
+func (s *Sandbox) Pause(ctx context.Context) (bool, error) {
+	if isPausedSandboxState(s.State, s.Status) {
+		return false, nil
+	}
+	if err := s.gateway.control.PauseSandbox(ctx, s.SandboxID); err != nil {
+		return false, err
+	}
+	s.State = "paused"
+	s.Status = "paused"
+	return true, nil
 }
 
 // Kill deletes the sandbox.
@@ -155,8 +193,10 @@ func (s *Sandbox) Refresh(ctx context.Context, req *control.RefreshSandboxReques
 	return s.gateway.control.RefreshSandbox(ctx, s.SandboxID, req)
 }
 
-func (s *Sandbox) SetTimeout(ctx context.Context, req *control.TimeoutRequest) error {
-	return s.gateway.control.SetSandboxTimeout(ctx, s.SandboxID, req)
+func (s *Sandbox) SetTimeout(ctx context.Context, timeout int64) error {
+	return s.gateway.control.SetSandboxTimeout(ctx, s.SandboxID, &control.TimeoutRequest{
+		Timeout: timeout,
+	})
 }
 
 func (s *Sandbox) Connect(ctx context.Context, req *control.ConnectSandboxRequest) (*ConnectSandboxResponse, error) {
@@ -188,7 +228,7 @@ func (s *SandboxDetail) Reload(ctx context.Context) (*SandboxDetail, error) {
 }
 
 // Resume reconnects to a paused sandbox detail and returns a running sandbox handle.
-func (s *SandboxDetail) Resume(ctx context.Context, timeout int32) (*Sandbox, error) {
+func (s *SandboxDetail) Resume(ctx context.Context, timeout int64) (*Sandbox, error) {
 	if timeout < 0 {
 		timeout = 300
 	}
@@ -200,8 +240,21 @@ func (s *SandboxDetail) Resume(ctx context.Context, timeout int32) (*Sandbox, er
 }
 
 // GetInfo refreshes the sandbox detail for this sandbox ID.
-func (s *SandboxDetail) GetInfo(ctx context.Context) (*SandboxDetail, error) {
-	return s.gateway.getSandbox(ctx, s.SandboxID)
+func (s *SandboxDetail) GetInfo(ctx context.Context) (*SandboxInfo, error) {
+	detail, err := s.gateway.getSandbox(ctx, s.SandboxID)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeSandboxInfo(detail.SandboxDetail), nil
+}
+
+// GetFullInfo refreshes the sandbox detail for this sandbox ID.
+func (s *SandboxDetail) GetFullInfo(ctx context.Context) (*SandboxInfo, error) {
+	detail, err := s.gateway.getSandbox(ctx, s.SandboxID)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeSandboxInfo(detail.SandboxDetail), nil
 }
 
 // GetMetrics reads runtime metrics for sandboxes that expose nano-executor access.
@@ -217,8 +270,16 @@ func (s *SandboxDetail) Logs(ctx context.Context, params *control.SandboxLogsPar
 	return s.gateway.control.GetSandboxLogs(ctx, s.SandboxID, params)
 }
 
-func (s *SandboxDetail) Pause(ctx context.Context) error {
-	return s.gateway.control.PauseSandbox(ctx, s.SandboxID)
+func (s *SandboxDetail) Pause(ctx context.Context) (bool, error) {
+	if isPausedSandboxState(s.State, s.Status) {
+		return false, nil
+	}
+	if err := s.gateway.control.PauseSandbox(ctx, s.SandboxID); err != nil {
+		return false, err
+	}
+	s.State = "paused"
+	s.Status = "paused"
+	return true, nil
 }
 
 // Kill deletes the sandbox.
@@ -236,8 +297,10 @@ func (s *SandboxDetail) Refresh(ctx context.Context, req *control.RefreshSandbox
 	return s.gateway.control.RefreshSandbox(ctx, s.SandboxID, req)
 }
 
-func (s *SandboxDetail) SetTimeout(ctx context.Context, req *control.TimeoutRequest) error {
-	return s.gateway.control.SetSandboxTimeout(ctx, s.SandboxID, req)
+func (s *SandboxDetail) SetTimeout(ctx context.Context, timeout int64) error {
+	return s.gateway.control.SetSandboxTimeout(ctx, s.SandboxID, &control.TimeoutRequest{
+		Timeout: timeout,
+	})
 }
 
 func (s *SandboxDetail) Connect(ctx context.Context, req *control.ConnectSandboxRequest) (*ConnectSandboxResponse, error) {
@@ -254,7 +317,7 @@ func (s *SandboxHandle) Reload(ctx context.Context) (*SandboxDetail, error) {
 }
 
 // Resume reconnects to a paused sandbox handle and returns a running sandbox handle.
-func (s *SandboxHandle) Resume(ctx context.Context, timeout int32) (*Sandbox, error) {
+func (s *SandboxHandle) Resume(ctx context.Context, timeout int64) (*Sandbox, error) {
 	if timeout < 0 {
 		timeout = 300
 	}
@@ -266,16 +329,90 @@ func (s *SandboxHandle) Resume(ctx context.Context, timeout int32) (*Sandbox, er
 }
 
 // GetInfo fetches the latest sandbox detail for this sandbox ID.
-func (s *SandboxHandle) GetInfo(ctx context.Context) (*SandboxDetail, error) {
-	return s.gateway.getSandbox(ctx, s.SandboxID)
+func (s *SandboxHandle) GetInfo(ctx context.Context) (*SandboxInfo, error) {
+	detail, err := s.gateway.getSandbox(ctx, s.SandboxID)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeSandboxInfo(detail.SandboxDetail), nil
+}
+
+// GetFullInfo fetches the latest full sandbox detail for this sandbox ID.
+func (s *SandboxHandle) GetFullInfo(ctx context.Context) (*SandboxInfo, error) {
+	detail, err := s.gateway.getSandbox(ctx, s.SandboxID)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeSandboxInfo(detail.SandboxDetail), nil
+}
+
+func normalizeSandboxInfo(detail *control.SandboxDetail) *SandboxInfo {
+	if detail == nil {
+		return &SandboxInfo{}
+	}
+	return &SandboxInfo{
+		SandboxID:          detail.SandboxID,
+		TemplateID:         detail.TemplateID,
+		SandboxDomain:      sandboxDomainFromURL(detail.EnvdURL),
+		StartedAt:          detail.StartedAt,
+		EndAt:              detail.EndAt,
+		State:              strings.ToLower(strings.TrimSpace(firstNonEmpty(detail.State, detail.Status))),
+		Metadata:           detail.Metadata,
+		Name:               detail.Alias,
+		CPUCount:           detail.CPUCount,
+		MemoryMB:           detail.MemoryMB,
+		EnvdAccessToken:    stringValue(detail.EnvdAccessToken),
+		TrafficAccessToken: stringValue(detail.EnvdAccessToken),
+	}
+}
+
+func (s *Sandbox) TrafficAccessToken() string {
+	if s == nil {
+		return ""
+	}
+	return stringValue(s.EnvdAccessToken)
+}
+
+func (s *SandboxDetail) TrafficAccessToken() string {
+	if s == nil {
+		return ""
+	}
+	return stringValue(s.EnvdAccessToken)
+}
+
+func sandboxDomainFromURL(value *string) string {
+	raw := stringValue(value)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
 }
 
 func (s *SandboxHandle) Logs(ctx context.Context, params *control.SandboxLogsParams) (*control.SandboxLogsResponse, error) {
 	return s.gateway.control.GetSandboxLogs(ctx, s.SandboxID, params)
 }
 
-func (s *SandboxHandle) Pause(ctx context.Context) error {
-	return s.gateway.control.PauseSandbox(ctx, s.SandboxID)
+func (s *SandboxHandle) Pause(ctx context.Context) (bool, error) {
+	if isPausedSandboxState(s.State, s.Status) {
+		return false, nil
+	}
+	if err := s.gateway.control.PauseSandbox(ctx, s.SandboxID); err != nil {
+		return false, err
+	}
+	s.State = "paused"
+	s.Status = "paused"
+	return true, nil
 }
 
 // Kill deletes the sandbox.
@@ -291,8 +428,10 @@ func (s *SandboxHandle) Refresh(ctx context.Context, req *control.RefreshSandbox
 	return s.gateway.control.RefreshSandbox(ctx, s.SandboxID, req)
 }
 
-func (s *SandboxHandle) SetTimeout(ctx context.Context, req *control.TimeoutRequest) error {
-	return s.gateway.control.SetSandboxTimeout(ctx, s.SandboxID, req)
+func (s *SandboxHandle) SetTimeout(ctx context.Context, timeout int64) error {
+	return s.gateway.control.SetSandboxTimeout(ctx, s.SandboxID, &control.TimeoutRequest{
+		Timeout: timeout,
+	})
 }
 
 func (s *SandboxHandle) Connect(ctx context.Context, req *control.ConnectSandboxRequest) (*ConnectSandboxResponse, error) {
@@ -341,4 +480,8 @@ func isRunningSandboxState(state, status string) bool {
 	default:
 		return true
 	}
+}
+
+func isPausedSandboxState(state, status string) bool {
+	return strings.EqualFold(strings.TrimSpace(firstNonEmpty(state, status)), "paused")
 }

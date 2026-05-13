@@ -64,7 +64,6 @@ func TestFacadeCreateSandbox(t *testing.T) {
 				"templateID":"base",
 				"sandboxID":"sb-1",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"http://` + r.Host + `/runtime",
 				"status":"running",
@@ -103,6 +102,9 @@ func TestFacadeCreateSandbox(t *testing.T) {
 	if result.ExitCode != 0 || strings.TrimSpace(result.Stdout) != "hello" {
 		t.Fatalf("result = %#v", result)
 	}
+	if created.TrafficAccessToken() != "unit-runtime-auth" {
+		t.Fatalf("TrafficAccessToken = %q", created.TrafficAccessToken())
+	}
 	execResult, err := commands.Exec(context.Background(), "echo hello", nil)
 	if err != nil {
 		t.Fatalf("Exec: %v", err)
@@ -122,7 +124,6 @@ func TestFacadeGitModule(t *testing.T) {
 				"templateID":"base",
 				"sandboxID":"sb-git",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"http://` + r.Host + `/runtime",
 				"status":"running",
@@ -176,6 +177,8 @@ func TestFacadeGitModule(t *testing.T) {
 }
 
 func TestFacadeSandboxLifecycleHelpers(t *testing.T) {
+	timeoutCalls := 0
+	pauseCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -185,7 +188,6 @@ func TestFacadeSandboxLifecycleHelpers(t *testing.T) {
 				"templateID":"base",
 				"sandboxID":"sb-helpers",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"status":"paused",
 				"state":"paused",
 				"startedAt":"2024-01-01T00:00:00Z",
@@ -196,7 +198,6 @@ func TestFacadeSandboxLifecycleHelpers(t *testing.T) {
 				"templateID":"base",
 				"sandboxID":"sb-helpers",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"http://` + r.Host + `/runtime",
 				"cpuCount":2,
@@ -219,7 +220,6 @@ func TestFacadeSandboxLifecycleHelpers(t *testing.T) {
 				"templateID":"base",
 				"sandboxID":"sb-helpers",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"http://` + r.Host + `/runtime",
 				"status":"running",
@@ -227,6 +227,19 @@ func TestFacadeSandboxLifecycleHelpers(t *testing.T) {
 				"startedAt":"2024-01-01T00:00:00Z",
 				"endAt":"2024-01-01T01:00:00Z"
 			}`))
+		case r.URL.Path == "/api/v1/sandboxes/sb-helpers/pause" && r.Method == http.MethodPost:
+			pauseCalls++
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/api/v1/sandboxes/sb-helpers/timeout" && r.Method == http.MethodPost:
+			timeoutCalls++
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode timeout request: %v", err)
+			}
+			if req["timeout"] != float64(1500) {
+				t.Fatalf("timeout body = %#v", req)
+			}
+			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/runtime/metrics" && r.Method == http.MethodGet:
 			_, _ = w.Write([]byte(`{"cpu_used_pct":1.5,"mem_used_mib":64,"mem_total_mib":1024,"disk_used":128,"disk_total":4096}`))
 		case r.URL.Path == "/api/v1/sandboxes/sb-helpers" && r.Method == http.MethodDelete:
@@ -250,8 +263,22 @@ func TestFacadeSandboxLifecycleHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInfo: %v", err)
 	}
-	if detail.Status != "paused" || detail.IsRunning() {
+	fullInfo, err := created.GetFullInfo(context.Background())
+	if err != nil {
+		t.Fatalf("GetFullInfo: %v", err)
+	}
+	if detail.State != "paused" {
 		t.Fatalf("detail = %#v", detail)
+	}
+	if fullInfo.State != "paused" {
+		t.Fatalf("fullInfo = %#v", fullInfo)
+	}
+	paused, err := created.Pause(context.Background())
+	if err != nil {
+		t.Fatalf("Pause created: %v", err)
+	}
+	if paused {
+		t.Fatal("pause should return false when sandbox is already paused")
 	}
 
 	resumed, err := created.Resume(context.Background(), 0)
@@ -268,6 +295,22 @@ func TestFacadeSandboxLifecycleHelpers(t *testing.T) {
 	}
 	if metrics.CPUUsedPct != 1.5 || metrics.MemUsedMiB != 64 {
 		t.Fatalf("metrics = %#v", metrics)
+	}
+	paused, err = resumed.Pause(context.Background())
+	if err != nil {
+		t.Fatalf("Pause resumed: %v", err)
+	}
+	if !paused {
+		t.Fatal("pause should return true for running sandbox")
+	}
+	if pauseCalls != 1 {
+		t.Fatalf("pauseCalls = %d", pauseCalls)
+	}
+	if err := resumed.SetTimeout(context.Background(), 1500); err != nil {
+		t.Fatalf("SetTimeout: %v", err)
+	}
+	if timeoutCalls != 1 {
+		t.Fatalf("timeoutCalls = %d", timeoutCalls)
 	}
 
 	if err := resumed.Kill(context.Background()); err != nil {
@@ -291,7 +334,6 @@ func TestFacadeRunCode(t *testing.T) {
 				"templateID":"base",
 				"sandboxID":"sb-code",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"http://` + r.Host + `/runtime",
 				"status":"running",
@@ -373,10 +415,10 @@ func TestFacadeRunCode(t *testing.T) {
 	stderr := make([]sandbox.CodeOutputChunk, 0, 2)
 	results := make([]sandbox.CodeExecutionResult, 0, 2)
 	errors := make([]sandbox.CodeExecutionError, 0, 1)
-	timeout := 30
+	timeoutMS := int64(30_000)
 	execution1, err := created.RunCode(context.Background(), "print(42)", &sandbox.RunCodeOptions{
-		CWD:     "/workspace",
-		Timeout: &timeout,
+		CWD:       "/workspace",
+		TimeoutMS: &timeoutMS,
 		OnStdout: func(chunk sandbox.CodeOutputChunk) {
 			stdout = append(stdout, chunk)
 		},
@@ -467,7 +509,6 @@ func TestFacadeNonPythonCodeContext(t *testing.T) {
 				"templateID":"base",
 				"sandboxID":"sb-stateless-context",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"http://` + r.Host + `/runtime",
 				"status":"running",
@@ -490,8 +531,8 @@ func TestFacadeNonPythonCodeContext(t *testing.T) {
 			if process["cwd"] != "/workspace/app" {
 				t.Fatalf("cwd = %#v", process["cwd"])
 			}
-			if req["timeout"] != float64(12) {
-				t.Fatalf("timeout = %#v", req["timeout"])
+			if req["timeoutMs"] != float64(12000) {
+				t.Fatalf("timeoutMs = %#v", req["timeoutMs"])
 			}
 			frames, err := encodeProcessFrames([]map[string]any{
 				{"event": map[string]any{"start": map[string]any{"pid": 88}}},
@@ -523,11 +564,11 @@ func TestFacadeNonPythonCodeContext(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	timeout := 12
+	timeoutMS := int64(12_000)
 	codeContext, err := created.CreateCodeContext(context.Background(), &sandbox.CodeContextCreateOptions{
-		CWD:      "/workspace/app",
-		Language: "bash",
-		Timeout:  &timeout,
+		CWD:       "/workspace/app",
+		Language:  "bash",
+		TimeoutMS: &timeoutMS,
 	})
 	if err != nil {
 		t.Fatalf("CreateCodeContext: %v", err)
@@ -860,13 +901,51 @@ func TestTemplateFacadeListGetDelete(t *testing.T) {
 	}
 }
 
+func TestTemplateFacadeTagHelpers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v1/templates/tags" && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"buildID":"build-1","tags":["v1","stable","prod"]}`))
+		case r.URL.Path == "/api/v1/templates/tpl-tags/tags" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`[{"buildID":"build-1","tag":"v1","createdAt":"2026-01-01T00:01:00Z"},{"buildID":"build-1","tag":"stable","createdAt":"2026-01-01T00:01:00Z"}]`))
+		case r.URL.Path == "/api/v1/templates/tags" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newClient(t, server.URL)
+	assigned, err := client.AssignTemplateTags(context.Background(), "demo:v1", []string{"stable", "prod"})
+	if err != nil {
+		t.Fatalf("AssignTemplateTags: %v", err)
+	}
+	if assigned.BuildID != "build-1" || len(assigned.Tags) != 3 {
+		t.Fatalf("assigned = %#v", assigned)
+	}
+	tags, err := client.GetTemplateTags(context.Background(), "tpl-tags")
+	if err != nil {
+		t.Fatalf("GetTemplateTags: %v", err)
+	}
+	if err := client.RemoveTemplateTags(context.Background(), "demo", []string{"stable"}); err != nil {
+		t.Fatalf("RemoveTemplateTags: %v", err)
+	}
+
+	if len(tags) != 2 || tags[0].BuildID != "build-1" || tags[0].Tag != "v1" || !tags[0].CreatedAt.Equal(time.Date(2026, time.January, 1, 0, 1, 0, 0, time.UTC)) {
+		t.Fatalf("tags = %#v", tags)
+	}
+}
+
 func TestTemplateFacadeListGetDeleteForwardOptions(t *testing.T) {
 	resolveCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.URL.Path == "/api/v1/templates" && r.Method == http.MethodGet:
-			if r.URL.Query().Get("visibility") != "team" || r.URL.Query().Get("teamID") != "team-1" || r.URL.Query().Get("limit") != "20" || r.URL.Query().Get("offset") != "40" {
+			if r.URL.Query().Get("visibility") != "team" || r.URL.Query().Get("teamID") != "" || r.URL.Query().Get("limit") != "20" || r.URL.Query().Get("offset") != "40" {
 				t.Fatalf("query = %#v", r.URL.Query())
 			}
 			_, _ = w.Write([]byte(`[{"templateID":"tpl-direct","buildStatus":"ready","public":false,"names":["demo"],"aliases":[]}]`))
@@ -891,7 +970,6 @@ func TestTemplateFacadeListGetDeleteForwardOptions(t *testing.T) {
 	client := newClient(t, server.URL)
 	listed, err := client.ListTemplates(context.Background(), &sandbox.TemplateListOptions{
 		Visibility: "team",
-		TeamID:     "team-1",
 		Limit:      20,
 		Offset:     40,
 	})
@@ -1207,7 +1285,6 @@ func TestFilesystemWriteHelpers(t *testing.T) {
 				"templateID":"base",
 				"sandboxID":"sb-files",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"http://` + r.Host + `/runtime",
 				"status":"running",
@@ -1238,7 +1315,7 @@ func TestFilesystemWriteHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	if written.Path != "/tmp/hello.txt" || written.BytesWritten != 5 {
+	if written.Name != "hello.txt" || written.Path != "/tmp/hello.txt" || written.Type != sandbox.FileTypeFile {
 		t.Fatalf("written = %#v", written)
 	}
 	batch, err := files.WriteFiles(context.Background(), []cmd.WriteFileEntry{
@@ -1248,7 +1325,7 @@ func TestFilesystemWriteHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteFiles: %v", err)
 	}
-	if len(batch) != 2 || batch[0].BytesWritten != 1 || batch[1].BytesWritten != 2 {
+	if len(batch) != 2 || batch[0].Name != "a.txt" || batch[1].Name != "b.txt" {
 		t.Fatalf("batch = %#v", batch)
 	}
 }
@@ -1264,7 +1341,6 @@ func TestFacadeFilesystemGitAndProxyHelpers(t *testing.T) {
 				"templateID":"base",
 				"sandboxID":"sb-ops",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"http://` + r.Host + `/runtime",
 				"status":"running",
@@ -1277,7 +1353,7 @@ func TestFacadeFilesystemGitAndProxyHelpers(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatalf("decode stat request: %v", err)
 			}
-			if req["path"] == "/tmp/missing" {
+			if req["path"] == "/tmp/missing" || req["path"] == "/tmp/new" {
 				http.NotFound(w, r)
 				return
 			}
@@ -1376,14 +1452,24 @@ func TestFacadeFilesystemGitAndProxyHelpers(t *testing.T) {
 	if err != nil || info.Path != "/tmp/a.txt" {
 		t.Fatalf("GetInfo = %#v, %v", info, err)
 	}
+	if info.Type != sandbox.FileTypeFile {
+		t.Fatalf("GetInfo type = %#v", info)
+	}
 	depth := 1
 	entries, err := files.List(context.Background(), "/tmp", &depth)
 	if err != nil || len(entries) != 1 || entries[0].Path != "/tmp/a.txt" {
 		t.Fatalf("List = %#v, %v", entries, err)
 	}
+	if entries[0].Type != sandbox.FileTypeFile {
+		t.Fatalf("List type = %#v", entries)
+	}
 	createdDir, err := files.MakeDir(context.Background(), "/tmp/new")
 	if err != nil || !createdDir {
 		t.Fatalf("MakeDir = %v, %v", createdDir, err)
+	}
+	existingDir, err := files.MakeDir(context.Background(), "/tmp/a.txt")
+	if err != nil || existingDir {
+		t.Fatalf("MakeDir existing = %v, %v", existingDir, err)
 	}
 	if err := files.Remove(context.Background(), "/tmp/old"); err != nil {
 		t.Fatalf("Remove: %v", err)
@@ -1392,27 +1478,48 @@ func TestFacadeFilesystemGitAndProxyHelpers(t *testing.T) {
 	if err != nil || renamed.Path != "/tmp/b.txt" {
 		t.Fatalf("Rename = %#v, %v", renamed, err)
 	}
+	if renamed.Type != sandbox.FileTypeFile {
+		t.Fatalf("Rename type = %#v", renamed)
+	}
 	recursive := true
-	watch, err := files.WatchDir(context.Background(), "/tmp", &recursive)
+	var watchEvents []sandbox.FilesystemEvent
+	eventSeen := make(chan struct{}, 1)
+	watch, err := files.WatchDir(context.Background(), "/tmp", func(event sandbox.FilesystemEvent) error {
+		watchEvents = append(watchEvents, event)
+		select {
+		case eventSeen <- struct{}{}:
+		default:
+		}
+		return nil
+	}, &recursive)
 	if err != nil {
 		t.Fatalf("WatchDir: %v", err)
 	}
-	frame, err := watch.Next()
+	<-eventSeen
+	if err := watch.Stop(); err != nil {
+		t.Fatalf("watch.Stop: %v", err)
+	}
+	if len(watchEvents) != 1 || watchEvents[0].Name != "a.txt" || watchEvents[0].Type != sandbox.FilesystemEventWrite {
+		t.Fatalf("watchEvents = %#v", watchEvents)
+	}
+	downloadURL, err := created.DownloadURL("/tmp/demo.txt", &sandbox.SandboxURLOptions{
+		User:                   "root",
+		UseSignatureExpiration: int64Ptr(3600),
+	})
 	if err != nil {
-		t.Fatalf("watch.Next: %v", err)
+		t.Fatalf("DownloadURL: %v", err)
 	}
-	if frame.Filesystem == nil || frame.Filesystem.Name != "a.txt" || frame.Filesystem.Type != cmd.EventType("EVENT_TYPE_WRITE") {
-		t.Fatalf("frame = %#v", frame)
+	if !strings.Contains(downloadURL, "/runtime/files?") || !strings.Contains(downloadURL, "signature=v1_") || !strings.Contains(downloadURL, "signature_expiration=3600") {
+		t.Fatalf("downloadURL = %s", downloadURL)
 	}
-	_ = watch.Close()
 
 	git, err := created.Git()
 	if err != nil {
 		t.Fatalf("Git: %v", err)
 	}
 	if _, err := git.Pull(context.Background(), "/workspace/repo", &sandbox.GitCommandOptions{
-		Envs:    map[string]string{"A": "1"},
-		Timeout: intPtr(5),
+		Envs:      map[string]string{"A": "1"},
+		TimeoutMS: int64Ptr(5000),
 	}); err != nil {
 		t.Fatalf("Pull: %v", err)
 	}
@@ -1446,7 +1553,7 @@ func TestFacadeFilesystemGitAndProxyHelpers(t *testing.T) {
 	if strings.Join(anySliceToStrings(runCalls[0]["args"].([]any)), "|") != "pull" || runCalls[0]["cwd"] != "/workspace/repo" {
 		t.Fatalf("pull = %#v", runCalls[0])
 	}
-	if env, _ := runCalls[0]["env"].(map[string]any); env["A"] != "1" || runCalls[0]["timeout"] != float64(5) {
+	if env, _ := runCalls[0]["env"].(map[string]any); env["A"] != "1" || runCalls[0]["timeoutMs"] != float64(5000) {
 		t.Fatalf("pull env = %#v", runCalls[0])
 	}
 	if strings.Join(anySliceToStrings(runCalls[1]["args"].([]any)), "|") != "checkout|main" {
@@ -1458,6 +1565,7 @@ func TestFacadeFilesystemGitAndProxyHelpers(t *testing.T) {
 }
 
 func TestFacadeCommandAndPTYHandles(t *testing.T) {
+	var startRequests []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/v1/sandboxes":
@@ -1467,7 +1575,6 @@ func TestFacadeCommandAndPTYHandles(t *testing.T) {
 				"templateID":"base",
 				"sandboxID":"sb-handle",
 				"clientID":"user-1",
-				"envdVersion":"atlas-0.1.0",
 				"envdAccessToken":"unit-runtime-auth",
 				"envdUrl":"http://` + r.Host + `/runtime",
 				"status":"running",
@@ -1480,6 +1587,7 @@ func TestFacadeCommandAndPTYHandles(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatalf("decode start request: %v", err)
 			}
+			startRequests = append(startRequests, req)
 			w.Header().Set("Content-Type", "application/connect+json")
 			if req["pty"] != nil {
 				_, _ = w.Write(connectFrameJSON(t, map[string]any{
@@ -1605,17 +1713,42 @@ func TestFacadeCommandAndPTYHandles(t *testing.T) {
 	if waited.ExitCode != 0 || strings.TrimSpace(waited.Stdout) != "hello" {
 		t.Fatalf("waited = %#v", waited)
 	}
+	var stdoutChunks []string
+	runResult, err := commands.Run(context.Background(), "cat", &sandbox.CommandRunOptions{
+		StdinOpen: testBoolPtr(false),
+		OnStdout:  func(chunk string) { stdoutChunks = append(stdoutChunks, chunk) },
+		User:      "app",
+	})
+	if err != nil {
+		t.Fatalf("commands.Run callbacks: %v", err)
+	}
+	if strings.TrimSpace(runResult.Stdout) != "hello" || len(stdoutChunks) != 1 || stdoutChunks[0] != "hello\n" {
+		t.Fatalf("run callbacks result=%#v chunks=%#v", runResult, stdoutChunks)
+	}
+	var connectChunks []string
+	connectedCommand, err := commands.Connect(context.Background(), 42, &sandbox.CommandConnectOptions{
+		OnStdout: func(chunk string) { connectChunks = append(connectChunks, chunk) },
+	})
+	if err != nil {
+		t.Fatalf("commands.Connect callbacks: %v", err)
+	}
+	if _, err := connectedCommand.Wait(context.Background()); err != nil {
+		t.Fatalf("connectedCommand.Wait: %v", err)
+	}
+	if len(connectChunks) != 1 || connectChunks[0] != "connected$ " {
+		t.Fatalf("connect chunks = %#v", connectChunks)
+	}
 
 	pty, err := created.Pty()
 	if err != nil {
 		t.Fatalf("Pty: %v", err)
 	}
-	ptyHandle, err := pty.Create(context.Background(), "bash", nil)
+	ptyHandle, err := pty.Create(context.Background(), "bash", &sandbox.PtyCreateOptions{User: "root"})
 	if err != nil {
 		t.Fatalf("pty.Create: %v", err)
 	}
-	if err := ptyHandle.SendStdin(context.Background(), "ls\n"); err != nil {
-		t.Fatalf("ptyHandle.SendStdin: %v", err)
+	if err := ptyHandle.SendInput(context.Background(), "ls\n"); err != nil {
+		t.Fatalf("ptyHandle.SendInput: %v", err)
 	}
 	ptyWaited, err := ptyHandle.Wait(context.Background())
 	if err != nil {
@@ -1624,7 +1757,18 @@ func TestFacadeCommandAndPTYHandles(t *testing.T) {
 	if ptyWaited.PTY != "shell$ " {
 		t.Fatalf("ptyWaited = %#v", ptyWaited)
 	}
-	connectedHandle, err := pty.Connect(context.Background(), 99)
+	if startRequests[1]["process"].(map[string]any)["cmd"] != "sh" ||
+		!strings.Contains(startRequests[1]["process"].(map[string]any)["args"].([]any)[1].(string), "su -s /bin/sh 'app'") {
+		t.Fatalf("command user start request = %#v", startRequests[1])
+	}
+	if startRequests[2]["process"].(map[string]any)["cmd"] != "sh" ||
+		!strings.Contains(startRequests[2]["process"].(map[string]any)["args"].([]any)[1].(string), "su -s /bin/sh 'root'") {
+		t.Fatalf("pty user start request = %#v", startRequests[2])
+	}
+	var ptyConnectChunks []string
+	connectedHandle, err := pty.Connect(context.Background(), 99, &sandbox.PtyConnectOptions{
+		OnStdout: func(chunk string) { ptyConnectChunks = append(ptyConnectChunks, chunk) },
+	})
 	if err != nil {
 		t.Fatalf("pty.Connect: %v", err)
 	}
@@ -1634,6 +1778,9 @@ func TestFacadeCommandAndPTYHandles(t *testing.T) {
 	}
 	if connectedWaited.PTY != "connected$ " {
 		t.Fatalf("connectedWaited = %#v", connectedWaited)
+	}
+	if len(ptyConnectChunks) != 1 || ptyConnectChunks[0] != "connected$ " {
+		t.Fatalf("pty connect chunks = %#v", ptyConnectChunks)
 	}
 	if err := pty.Resize(context.Background(), 99, cmd.PtySize{Cols: 100, Rows: 40}); err != nil {
 		t.Fatalf("pty.Resize: %v", err)
@@ -1731,6 +1878,10 @@ func TestTemplateBuildAutoUploadsLocalCopySources(t *testing.T) {
 }
 
 func testBoolPtr(v bool) *bool {
+	return &v
+}
+
+func int64Ptr(v int64) *int64 {
 	return &v
 }
 

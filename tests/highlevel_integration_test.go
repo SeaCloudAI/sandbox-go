@@ -26,7 +26,7 @@ func TestIntegrationHighLevelFacade(t *testing.T) {
 
 	ctx := context.Background()
 	waitReady := true
-	timeout := int32(1800)
+	timeout := int64(1800)
 	created, err := client.Create(ctx, templateID, &sandbox.CreateOptions{
 		Timeout:   &timeout,
 		WaitReady: &waitReady,
@@ -62,10 +62,11 @@ func TestIntegrationHighLevelFacade(t *testing.T) {
 	if _, err := files.Write(ctx, path, []byte("go-facade")); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	content, err := files.Read(ctx, path)
+	contentValue, err := files.Read(ctx, path, nil)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
+	content, _ := contentValue.(string)
 	if content != "go-facade" {
 		t.Fatalf("content = %q", content)
 	}

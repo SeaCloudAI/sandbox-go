@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SeaCloudAI/sandbox-go/build"
@@ -30,14 +31,20 @@ const autoCopyPrefix = "__auto_copy__:"
 
 type CreateOptions struct {
 	TemplateID string
-	Timeout    *int32
+	Timeout    *int64
+	AutoPause  *bool
 	Metadata   map[string]string
 	EnvVars    map[string]string
 	WaitReady  *bool
 }
 
 type ConnectOptions struct {
-	Timeout int32
+	Timeout *int64
+}
+
+type SandboxURLOptions struct {
+	User                   string
+	UseSignatureExpiration *int64
 }
 
 type ListOptions struct {
@@ -48,19 +55,50 @@ type ListOptions struct {
 }
 
 type CommandRunOptions struct {
-	Args    []string
-	Envs    map[string]string
-	CWD     string
-	Timeout *int
-	Stdin   *string
+	Args      []string
+	Envs      map[string]string
+	CWD       string
+	TimeoutMS *int64
+	Stdin     *string
+	StdinOpen *bool
+	OnStdout  func(string)
+	OnStderr  func(string)
+	User      string
+}
+
+type CommandConnectOptions struct {
+	OnStdout func(string)
+	OnStderr func(string)
 }
 
 type PtyCreateOptions struct {
-	Args    []string
-	Envs    map[string]string
-	CWD     string
-	Timeout *int
-	Size    *cmd.PtySize
+	Args      []string
+	Envs      map[string]string
+	CWD       string
+	TimeoutMS *int64
+	Size      *cmd.PtySize
+	User      string
+}
+
+type PtyConnectOptions struct {
+	OnStdout func(string)
+	OnStderr func(string)
+}
+
+type FilesystemRequestOptions struct {
+	User string
+}
+
+type FilesystemListOptions struct {
+	User  string
+	Depth *int
+}
+
+type WatchDirOptions struct {
+	User      string
+	Recursive *bool
+	TimeoutMS *int64
+	OnExit    func(error)
 }
 
 type CommandResult struct {
@@ -72,11 +110,13 @@ type CommandResult struct {
 }
 
 type CommandHandle struct {
-	runtime *Runtime
-	stream  *cmd.ProcessStream
-	PID     int
-	CmdID   string
-	PTY     bool
+	runtime  *Runtime
+	stream   *cmd.ProcessStream
+	PID      int
+	CmdID    string
+	PTY      bool
+	onStdout func(string)
+	onStderr func(string)
 }
 
 type CommandWaitResult struct {
@@ -86,9 +126,66 @@ type CommandWaitResult struct {
 	ExitCode int
 }
 
+type FileType string
+
+const (
+	FileTypeFile    FileType = "file"
+	FileTypeDir     FileType = "dir"
+	FileTypeSymlink FileType = "symlink"
+)
+
+type EntryInfo struct {
+	Name          string
+	Type          FileType
+	Path          string
+	Size          int64
+	Mode          int64
+	Permissions   string
+	Owner         string
+	Group         string
+	ModifiedTime  *time.Time
+	SymlinkTarget *string
+}
+
+type FilesystemEventType string
+
+const (
+	FilesystemEventCreate FilesystemEventType = "create"
+	FilesystemEventWrite  FilesystemEventType = "write"
+	FilesystemEventRemove FilesystemEventType = "remove"
+	FilesystemEventRename FilesystemEventType = "rename"
+	FilesystemEventChmod  FilesystemEventType = "chmod"
+)
+
+type FilesystemEvent struct {
+	Name string
+	Type FilesystemEventType
+}
+
 type WriteInfo struct {
-	Path         string
-	BytesWritten int64
+	Name string
+	Path string
+	Type FileType
+}
+
+type ReadOptions struct {
+	Format string
+}
+
+type WatchHandle struct {
+	stop func() error
+	once sync.Once
+	err  error
+}
+
+func (h *WatchHandle) Stop() error {
+	if h == nil || h.stop == nil {
+		return nil
+	}
+	h.once.Do(func() {
+		h.err = h.stop()
+	})
+	return h.err
 }
 
 type CommandsModule struct {
@@ -108,10 +205,10 @@ type GitModule struct {
 }
 
 type GitCommandOptions struct {
-	Envs    map[string]string
-	CWD     string
-	Timeout *int
-	User    string
+	Envs      map[string]string
+	CWD       string
+	TimeoutMS *int64
+	User      string
 }
 
 type GitCloneOptions struct {
@@ -200,6 +297,38 @@ func (s *SandboxDetail) GetHost(port int) (string, error) {
 	return runtimeProxyURL(runtime.BaseURL(), port)
 }
 
+func (s *Sandbox) DownloadURL(path string, opts *SandboxURLOptions) (string, error) {
+	runtime, err := s.Runtime()
+	if err != nil {
+		return "", err
+	}
+	return runtimeFileURL(runtime.BaseURL(), stringValue(s.EnvdAccessToken), path, "read", opts)
+}
+
+func (s *SandboxDetail) DownloadURL(path string, opts *SandboxURLOptions) (string, error) {
+	runtime, err := s.Runtime()
+	if err != nil {
+		return "", err
+	}
+	return runtimeFileURL(runtime.BaseURL(), stringValue(s.EnvdAccessToken), path, "read", opts)
+}
+
+func (s *Sandbox) UploadURL(path string, opts *SandboxURLOptions) (string, error) {
+	runtime, err := s.Runtime()
+	if err != nil {
+		return "", err
+	}
+	return runtimeFileURL(runtime.BaseURL(), stringValue(s.EnvdAccessToken), path, "write", opts)
+}
+
+func (s *SandboxDetail) UploadURL(path string, opts *SandboxURLOptions) (string, error) {
+	runtime, err := s.Runtime()
+	if err != nil {
+		return "", err
+	}
+	return runtimeFileURL(runtime.BaseURL(), stringValue(s.EnvdAccessToken), path, "write", opts)
+}
+
 func (s *Sandbox) Proxy(ctx context.Context, req *cmd.ProxyRequest) (*http.Response, error) {
 	runtime, err := s.Runtime()
 	if err != nil {
@@ -220,13 +349,33 @@ func (m *CommandsModule) Run(ctx context.Context, command string, opts *CommandR
 	if opts == nil {
 		opts = &CommandRunOptions{}
 	}
+	runtimeTimeout, err := resolvePositiveRuntimeTimeoutMilliseconds(opts.TimeoutMS)
+	if err != nil {
+		return nil, err
+	}
+	if opts.OnStdout != nil || opts.OnStderr != nil || opts.StdinOpen != nil {
+		handle, err := m.Start(ctx, command, opts)
+		if err != nil {
+			return nil, err
+		}
+		waited, err := handle.Wait(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &CommandResult{
+			Stdout:   waited.Stdout,
+			Stderr:   waited.Stderr,
+			ExitCode: waited.ExitCode,
+		}, nil
+	}
+	execCommand, execArgs := buildCommandExecution(command, opts.Args, opts.User)
 	resp, err := m.runtime.Run(ctx, &cmd.AgentRunRequest{
-		Cmd:     command,
-		Args:    opts.Args,
-		CWD:     opts.CWD,
-		Env:     opts.Envs,
-		Timeout: opts.Timeout,
-		Stdin:   opts.Stdin,
+		Cmd:       execCommand,
+		Args:      execArgs,
+		CWD:       opts.CWD,
+		Env:       opts.Envs,
+		TimeoutMS: runtimeTimeout,
+		Stdin:     opts.Stdin,
 	}, nil)
 	if err != nil {
 		return nil, err
@@ -248,16 +397,24 @@ func (m *CommandsModule) Start(ctx context.Context, command string, opts *Comman
 	if opts == nil {
 		opts = &CommandRunOptions{}
 	}
+	runtimeTimeout, err := resolvePositiveRuntimeTimeoutMilliseconds(opts.TimeoutMS)
+	if err != nil {
+		return nil, err
+	}
 	stdin := true
+	if opts.StdinOpen != nil {
+		stdin = *opts.StdinOpen
+	}
+	execCommand, execArgs := buildCommandExecution(command, opts.Args, opts.User)
 	stream, err := m.runtime.Start(ctx, &cmd.ProcessStartRequest{
 		Process: &cmd.ProcessConfig{
-			Cmd:  command,
-			Args: opts.Args,
+			Cmd:  execCommand,
+			Args: execArgs,
 			Envs: opts.Envs,
 			CWD:  stringPtr(opts.CWD),
 		},
-		Timeout: opts.Timeout,
-		Stdin:   &stdin,
+		TimeoutMS: runtimeTimeout,
+		Stdin:     &stdin,
 	}, nil)
 	if err != nil {
 		return nil, err
@@ -267,6 +424,8 @@ func (m *CommandsModule) Start(ctx context.Context, command string, opts *Comman
 		_ = stream.Close()
 		return nil, err
 	}
+	handle.onStdout = opts.OnStdout
+	handle.onStderr = opts.OnStderr
 	if opts.Stdin != nil {
 		if err := handle.SendStdin(ctx, *opts.Stdin); err != nil {
 			_ = handle.Close()
@@ -276,7 +435,7 @@ func (m *CommandsModule) Start(ctx context.Context, command string, opts *Comman
 	return handle, nil
 }
 
-func (m *CommandsModule) Connect(ctx context.Context, pid int) (*CommandHandle, error) {
+func (m *CommandsModule) Connect(ctx context.Context, pid int, opts ...*CommandConnectOptions) (*CommandHandle, error) {
 	stream, err := m.runtime.Connect(ctx, &cmd.ConnectRequest{
 		Process: cmd.ProcessSelector{PID: pid},
 	}, nil)
@@ -287,6 +446,10 @@ func (m *CommandsModule) Connect(ctx context.Context, pid int) (*CommandHandle, 
 	if err != nil {
 		_ = stream.Close()
 		return nil, err
+	}
+	if len(opts) > 0 && opts[0] != nil {
+		handle.onStdout = opts[0].OnStdout
+		handle.onStderr = opts[0].OnStderr
 	}
 	return handle, nil
 }
@@ -318,83 +481,226 @@ func (m *CommandsModule) SendStdin(ctx context.Context, pid int, data string) er
 }
 
 func (m *FilesystemModule) Exists(ctx context.Context, path string) (bool, error) {
-	_, err := m.runtime.Stat(ctx, &cmd.StatRequest{Path: path}, nil)
+	return m.ExistsWithOptions(ctx, path, nil)
+}
+
+func (m *FilesystemModule) ExistsWithOptions(ctx context.Context, path string, opts *FilesystemRequestOptions) (bool, error) {
+	_, err := m.runtime.Stat(ctx, &cmd.StatRequest{Path: path}, filesystemRequestOptions(opts))
 	if apiErr, ok := err.(*core.APIError); ok && apiErr.Kind == core.APIErrorKindNotFound {
 		return false, nil
 	}
 	return err == nil, err
 }
 
-func (m *FilesystemModule) GetInfo(ctx context.Context, path string) (*cmd.EntryInfo, error) {
-	resp, err := m.runtime.Stat(ctx, &cmd.StatRequest{Path: path}, nil)
-	if err != nil {
-		return nil, err
-	}
-	return &resp.Entry, nil
+func (m *FilesystemModule) GetInfo(ctx context.Context, path string) (*EntryInfo, error) {
+	return m.GetInfoWithOptions(ctx, path, nil)
 }
 
-func (m *FilesystemModule) List(ctx context.Context, path string, depth *int) ([]cmd.EntryInfo, error) {
-	resp, err := m.runtime.ListDir(ctx, &cmd.ListDirRequest{Path: path, Depth: depth}, nil)
+func (m *FilesystemModule) GetInfoWithOptions(ctx context.Context, path string, opts *FilesystemRequestOptions) (*EntryInfo, error) {
+	resp, err := m.runtime.Stat(ctx, &cmd.StatRequest{Path: path}, filesystemRequestOptions(opts))
 	if err != nil {
 		return nil, err
 	}
-	return resp.Entries, nil
+	return normalizeEntryInfo(resp.Entry), nil
+}
+
+func (m *FilesystemModule) List(ctx context.Context, path string, depth *int) ([]EntryInfo, error) {
+	return m.ListWithOptions(ctx, path, &FilesystemListOptions{Depth: depth})
+}
+
+func (m *FilesystemModule) ListWithOptions(ctx context.Context, path string, opts *FilesystemListOptions) ([]EntryInfo, error) {
+	var depth *int
+	if opts != nil {
+		depth = opts.Depth
+	}
+	resp, err := m.runtime.ListDir(ctx, &cmd.ListDirRequest{Path: path, Depth: depth}, filesystemListOptions(opts))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]EntryInfo, 0, len(resp.Entries))
+	for _, entry := range resp.Entries {
+		out = append(out, *normalizeEntryInfo(entry))
+	}
+	return out, nil
 }
 
 func (m *FilesystemModule) MakeDir(ctx context.Context, path string) (bool, error) {
-	_, err := m.runtime.MakeDir(ctx, &cmd.MakeDirRequest{Path: path}, nil)
+	return m.MakeDirWithOptions(ctx, path, nil)
+}
+
+func (m *FilesystemModule) MakeDirWithOptions(ctx context.Context, path string, opts *FilesystemRequestOptions) (bool, error) {
+	exists, err := m.ExistsWithOptions(ctx, path, opts)
+	if err != nil {
+		return false, err
+	}
+	if exists {
+		return false, nil
+	}
+	_, err = m.runtime.MakeDir(ctx, &cmd.MakeDirRequest{Path: path}, filesystemRequestOptions(opts))
 	return err == nil, err
 }
 
-func (m *FilesystemModule) Read(ctx context.Context, path string) (string, error) {
-	resp, err := m.runtime.ReadFile(ctx, &cmd.FileRequest{Path: path}, nil)
+func (m *FilesystemModule) Read(ctx context.Context, path string, opts *ReadOptions) (any, error) {
+	return m.ReadWithOptions(ctx, path, opts, nil)
+}
+
+func (m *FilesystemModule) ReadWithOptions(ctx context.Context, path string, opts *ReadOptions, reqOpts *FilesystemRequestOptions) (any, error) {
+	resp, err := m.runtime.ReadFile(ctx, &cmd.FileRequest{Path: path}, filesystemRequestOptions(reqOpts))
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	format := "text"
+	if opts != nil && strings.TrimSpace(opts.Format) != "" {
+		format = strings.TrimSpace(opts.Format)
+	}
+	if format == "stream" {
+		return resp.Body, nil
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	if format == "bytes" || format == "blob" {
+		return body, nil
 	}
 	return string(body), nil
 }
 
-func (m *FilesystemModule) Write(ctx context.Context, path string, data []byte) (*WriteInfo, error) {
-	if err := m.runtime.WriteFile(ctx, &cmd.UploadBytesRequest{Path: path, Data: data}, nil); err != nil {
+func (m *FilesystemModule) Write(ctx context.Context, path string, data any) (*WriteInfo, error) {
+	return m.WriteWithOptions(ctx, path, data, nil)
+}
+
+func (m *FilesystemModule) WriteWithOptions(ctx context.Context, path string, data any, opts *FilesystemRequestOptions) (*WriteInfo, error) {
+	raw, err := normalizeWriteData(data)
+	if err != nil {
 		return nil, err
 	}
-	return &WriteInfo{Path: path, BytesWritten: int64(len(data))}, nil
+	if err := m.runtime.WriteFile(ctx, &cmd.UploadBytesRequest{Path: path, Data: raw}, filesystemRequestOptions(opts)); err != nil {
+		return nil, err
+	}
+	return normalizeWriteInfo(path), nil
 }
 
 func (m *FilesystemModule) WriteFiles(ctx context.Context, files []cmd.WriteFileEntry) ([]WriteInfo, error) {
-	resp, err := m.runtime.WriteBatch(ctx, &cmd.WriteFilesRequest{Files: files}, nil)
+	return m.WriteFilesWithOptions(ctx, files, nil)
+}
+
+func (m *FilesystemModule) WriteFilesWithOptions(ctx context.Context, files []cmd.WriteFileEntry, opts *FilesystemRequestOptions) ([]WriteInfo, error) {
+	resp, err := m.runtime.WriteBatch(ctx, &cmd.WriteFilesRequest{Files: files}, filesystemRequestOptions(opts))
 	if err != nil {
 		return nil, err
 	}
 	out := make([]WriteInfo, 0, len(resp.Files))
 	for _, file := range resp.Files {
-		out = append(out, WriteInfo{
-			Path:         file.Path,
-			BytesWritten: file.BytesWritten,
-		})
+		out = append(out, *normalizeWriteInfo(file.Path))
 	}
 	return out, nil
 }
 
 func (m *FilesystemModule) Remove(ctx context.Context, path string) error {
-	return m.runtime.Remove(ctx, &cmd.RemoveRequest{Path: path}, nil)
+	return m.RemoveWithOptions(ctx, path, nil)
 }
 
-func (m *FilesystemModule) Rename(ctx context.Context, oldPath, newPath string) (*cmd.EntryInfo, error) {
-	resp, err := m.runtime.Move(ctx, &cmd.MoveRequest{Source: oldPath, Destination: newPath}, nil)
+func (m *FilesystemModule) RemoveWithOptions(ctx context.Context, path string, opts *FilesystemRequestOptions) error {
+	return m.runtime.Remove(ctx, &cmd.RemoveRequest{Path: path}, filesystemRequestOptions(opts))
+}
+
+func (m *FilesystemModule) Rename(ctx context.Context, oldPath, newPath string) (*EntryInfo, error) {
+	return m.RenameWithOptions(ctx, oldPath, newPath, nil)
+}
+
+func (m *FilesystemModule) RenameWithOptions(ctx context.Context, oldPath, newPath string, opts *FilesystemRequestOptions) (*EntryInfo, error) {
+	resp, err := m.runtime.Move(ctx, &cmd.MoveRequest{Source: oldPath, Destination: newPath}, filesystemRequestOptions(opts))
 	if err != nil {
 		return nil, err
 	}
-	return &resp.Entry, nil
+	return normalizeEntryInfo(resp.Entry), nil
 }
 
-func (m *FilesystemModule) WatchDir(ctx context.Context, path string, recursive *bool) (*cmd.FilesystemWatchStream, error) {
-	return m.runtime.WatchDir(ctx, &cmd.WatchDirRequest{Path: path, Recursive: recursive}, nil)
+func (m *FilesystemModule) WatchDir(ctx context.Context, path string, onEvent func(FilesystemEvent) error, recursive *bool) (*WatchHandle, error) {
+	return m.WatchDirWithOptions(ctx, path, onEvent, &WatchDirOptions{Recursive: recursive})
+}
+
+func (m *FilesystemModule) WatchDirWithOptions(ctx context.Context, path string, onEvent func(FilesystemEvent) error, opts *WatchDirOptions) (*WatchHandle, error) {
+	var recursive *bool
+	if opts != nil {
+		recursive = opts.Recursive
+	}
+	stream, err := m.runtime.WatchDir(ctx, &cmd.WatchDirRequest{Path: path, Recursive: recursive}, watchDirRequestOptions(opts))
+	if err != nil {
+		return nil, err
+	}
+	done := make(chan error, 1)
+	stopRequested := make(chan struct{})
+	var timer *time.Timer
+	if opts != nil && opts.TimeoutMS != nil {
+		if *opts.TimeoutMS < 0 {
+			_ = stream.Close()
+			return nil, fmt.Errorf("sandbox: timeoutMs must be non-negative")
+		}
+		if *opts.TimeoutMS > 0 {
+			timer = time.AfterFunc(time.Duration(*opts.TimeoutMS)*time.Millisecond, func() {
+				_ = stream.Close()
+			})
+		}
+	}
+	go func() {
+		defer close(done)
+		var exitErr error
+		defer func() {
+			if timer != nil {
+				timer.Stop()
+			}
+			select {
+			case <-stopRequested:
+			default:
+				if opts != nil && opts.OnExit != nil {
+					opts.OnExit(exitErr)
+				}
+			}
+		}()
+		for {
+			frame, err := stream.Next()
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					done <- nil
+					return
+				}
+				select {
+				case <-stopRequested:
+					done <- nil
+					return
+				default:
+				}
+				exitErr = err
+				done <- err
+				return
+			}
+			if frame == nil || frame.Filesystem == nil {
+				done <- nil
+				return
+			}
+			if onEvent != nil {
+				if err := onEvent(*normalizeFilesystemEvent(*frame.Filesystem)); err != nil {
+					exitErr = err
+					done <- err
+					return
+				}
+			}
+		}
+	}()
+	return &WatchHandle{
+		stop: func() error {
+			close(stopRequested)
+			closeErr := stream.Close()
+			doneErr := <-done
+			if closeErr != nil {
+				return closeErr
+			}
+			return doneErr
+		},
+	}, nil
 }
 
 func (m *PtyModule) Kill(ctx context.Context, pid int) (bool, error) {
@@ -415,6 +721,10 @@ func (m *PtyModule) SendStdin(ctx context.Context, pid int, data string) error {
 	}, nil)
 }
 
+func (m *PtyModule) SendInput(ctx context.Context, pid int, data string) error {
+	return m.SendStdin(ctx, pid, data)
+}
+
 func (m *PtyModule) Resize(ctx context.Context, pid int, size cmd.PtySize) error {
 	return m.runtime.Update(ctx, &cmd.UpdateRequest{
 		Process: cmd.ProcessSelector{PID: pid},
@@ -426,21 +736,26 @@ func (m *PtyModule) Create(ctx context.Context, command string, opts *PtyCreateO
 	if opts == nil {
 		opts = &PtyCreateOptions{}
 	}
+	runtimeTimeout, err := resolvePositiveRuntimeTimeoutMilliseconds(opts.TimeoutMS)
+	if err != nil {
+		return nil, err
+	}
 	stdin := true
 	size := opts.Size
 	if size == nil {
 		size = &cmd.PtySize{Cols: 80, Rows: 24}
 	}
+	execCommand, execArgs := buildCommandExecution(command, opts.Args, opts.User)
 	stream, err := m.runtime.Start(ctx, &cmd.ProcessStartRequest{
 		Process: &cmd.ProcessConfig{
-			Cmd:  command,
-			Args: opts.Args,
+			Cmd:  execCommand,
+			Args: execArgs,
 			Envs: opts.Envs,
 			CWD:  stringPtr(opts.CWD),
 		},
-		Timeout: opts.Timeout,
-		Stdin:   &stdin,
-		PTY:     &cmd.PtyConfig{Size: *size},
+		TimeoutMS: runtimeTimeout,
+		Stdin:     &stdin,
+		PTY:       &cmd.PtyConfig{Size: *size},
 	}, nil)
 	if err != nil {
 		return nil, err
@@ -453,7 +768,7 @@ func (m *PtyModule) Create(ctx context.Context, command string, opts *PtyCreateO
 	return handle, nil
 }
 
-func (m *PtyModule) Connect(ctx context.Context, pid int) (*CommandHandle, error) {
+func (m *PtyModule) Connect(ctx context.Context, pid int, opts ...*PtyConnectOptions) (*CommandHandle, error) {
 	stream, err := m.runtime.Connect(ctx, &cmd.ConnectRequest{
 		Process: cmd.ProcessSelector{PID: pid},
 	}, nil)
@@ -464,6 +779,10 @@ func (m *PtyModule) Connect(ctx context.Context, pid int) (*CommandHandle, error
 	if err != nil {
 		_ = stream.Close()
 		return nil, err
+	}
+	if len(opts) > 0 && opts[0] != nil {
+		handle.onStdout = opts[0].OnStdout
+		handle.onStderr = opts[0].OnStderr
 	}
 	return handle, nil
 }
@@ -510,10 +829,10 @@ func (m *GitModule) Status(ctx context.Context, path string, opts *GitCommandOpt
 func (m *GitModule) run(ctx context.Context, subcommand string, args []string, opts *GitCommandOptions) (*CommandResult, error) {
 	command, commandArgs := buildGitExecution(subcommand, args, strings.TrimSpace(opts.User))
 	return m.commands.Run(ctx, command, &CommandRunOptions{
-		Args:    commandArgs,
-		Envs:    cloneStringMap(opts.Envs),
-		CWD:     opts.CWD,
-		Timeout: opts.Timeout,
+		Args:      commandArgs,
+		Envs:      cloneStringMap(opts.Envs),
+		CWD:       opts.CWD,
+		TimeoutMS: opts.TimeoutMS,
 	})
 }
 
@@ -632,6 +951,7 @@ type TemplateBuildInfo struct {
 	BuildID    string
 	Name       string
 	Tags       []string
+	Alias      string
 	Status     string
 	Template   *build.TemplateResponse
 	Build      *build.BuildResponse
@@ -639,7 +959,6 @@ type TemplateBuildInfo struct {
 
 type TemplateListOptions struct {
 	Visibility string
-	TeamID     string
 	Limit      int
 	Offset     int
 }
@@ -653,6 +972,17 @@ type TemplateBuildStatusOptions struct {
 	LogsOffset *int
 	Limit      *int
 	Level      string
+}
+
+type TemplateTag struct {
+	BuildID   string
+	CreatedAt time.Time
+	Tag       string
+}
+
+type TemplateTagInfo struct {
+	BuildID string
+	Tags    []string
 }
 
 type LogEntry struct {
@@ -1088,6 +1418,7 @@ func buildTemplateWithService(
 			BuildID:    buildID,
 			Name:       templateName,
 			Tags:       tags,
+			Alias:      templateName,
 			Status:     "building",
 			Template:   templateResp,
 		}, nil
@@ -1138,6 +1469,7 @@ func buildTemplateWithService(
 		BuildID:    buildID,
 		Name:       templateName,
 		Tags:       tags,
+		Alias:      templateName,
 		Status:     status.Status,
 		Template:   templateResp,
 		Build:      buildResp,
@@ -1154,7 +1486,6 @@ func listTemplatesWithService(
 	}
 	return buildService.ListTemplates(ctx, &build.ListTemplatesParams{
 		Visibility: opts.Visibility,
-		TeamID:     opts.TeamID,
 		Limit:      opts.Limit,
 		Offset:     opts.Offset,
 	})
@@ -1195,6 +1526,51 @@ func deleteTemplateWithService(ctx context.Context, buildService *build.Service,
 	return buildService.DeleteTemplate(ctx, templateID)
 }
 
+func assignTemplateTagsWithService(ctx context.Context, buildService *build.Service, targetName string, tags []string) (*TemplateTagInfo, error) {
+	resp, err := buildService.AssignTemplateTags(ctx, &build.AssignTemplateTagsRequest{
+		Target: targetName,
+		Tags:   tags,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &TemplateTagInfo{
+		BuildID: strings.TrimSpace(resp.BuildID),
+		Tags:    append([]string(nil), resp.Tags...),
+	}, nil
+}
+
+func getTemplateTagsWithService(ctx context.Context, buildService *build.Service, ref string) ([]TemplateTag, error) {
+	templateID := strings.TrimSpace(ref)
+	if !strings.HasPrefix(templateID, "tpl-") {
+		resolved, err := buildService.ResolveTemplateRef(ctx, templateID)
+		if err != nil {
+			return nil, err
+		}
+		templateID = resolved.TemplateID
+	}
+	tags, err := buildService.ListTemplateTags(ctx, templateID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TemplateTag, 0, len(tags))
+	for _, tag := range tags {
+		out = append(out, TemplateTag{
+			BuildID:   strings.TrimSpace(tag.BuildID),
+			CreatedAt: tag.CreatedAt,
+			Tag:       tag.Tag,
+		})
+	}
+	return out, nil
+}
+
+func removeTemplateTagsWithService(ctx context.Context, buildService *build.Service, ref string, tags []string) error {
+	return buildService.DeleteTemplateTags(ctx, &build.DeleteTemplateTagsRequest{
+		Name: ref,
+		Tags: tags,
+	})
+}
+
 func templateExistsWithService(ctx context.Context, buildService *build.Service, ref string) (bool, error) {
 	_, err := getTemplateWithService(ctx, buildService, ref, &TemplateGetOptions{})
 	if err == nil {
@@ -1221,6 +1597,22 @@ func getTemplateBuildStatusWithService(
 		Limit:      opts.Limit,
 		Level:      firstNonEmpty(opts.Level),
 	})
+}
+
+func getTemplateForTagMutationWithService(ctx context.Context, buildService *build.Service, ref string) (*build.TemplateResponse, error) {
+	templateResp, err := getTemplateWithService(ctx, buildService, ref, nil)
+	if err == nil {
+		return templateResp, nil
+	}
+	var apiErr *core.APIError
+	if !errors.As(err, &apiErr) || apiErr.Kind != core.APIErrorKindNotFound {
+		return nil, err
+	}
+	name, _, parseErr := parseTemplateName(ref)
+	if parseErr != nil || strings.TrimSpace(name) == strings.TrimSpace(ref) {
+		return nil, err
+	}
+	return getTemplateWithService(ctx, buildService, name, nil)
 }
 
 // TemplateToJSON serializes the currently supported template subset into build-request JSON.
@@ -1366,6 +1758,91 @@ func dedupeStrings(values []string) []string {
 	return out
 }
 
+func normalizeTemplateTagInput(values []string) ([]string, error) {
+	tags := dedupeStrings(values)
+	if len(tags) == 0 {
+		return nil, fmt.Errorf("sandbox: tags are required")
+	}
+	return tags, nil
+}
+
+func normalizeWriteData(data any) ([]byte, error) {
+	switch value := data.(type) {
+	case nil:
+		return nil, fmt.Errorf("sandbox: data is required")
+	case []byte:
+		return value, nil
+	case string:
+		return []byte(value), nil
+	case io.Reader:
+		return io.ReadAll(value)
+	default:
+		return nil, fmt.Errorf("sandbox: write data must be a string, []byte, or io.Reader")
+	}
+}
+
+func normalizeWriteInfo(filePath string) *WriteInfo {
+	return &WriteInfo{
+		Name: path.Base(filePath),
+		Path: filePath,
+		Type: FileTypeFile,
+	}
+}
+
+func normalizeEntryInfo(entry cmd.EntryInfo) *EntryInfo {
+	var modifiedTime *time.Time
+	if strings.TrimSpace(entry.ModifiedTime) != "" {
+		if parsed, err := time.Parse(time.RFC3339Nano, entry.ModifiedTime); err == nil {
+			modifiedTime = &parsed
+		}
+	}
+	return &EntryInfo{
+		Name:          entry.Name,
+		Type:          normalizeFileType(entry.Type),
+		Path:          entry.Path,
+		Size:          entry.Size,
+		Mode:          entry.Mode,
+		Permissions:   entry.Permissions,
+		Owner:         entry.Owner,
+		Group:         entry.Group,
+		ModifiedTime:  modifiedTime,
+		SymlinkTarget: entry.SymlinkTarget,
+	}
+}
+
+func normalizeFilesystemEvent(event cmd.FilesystemEvent) *FilesystemEvent {
+	return &FilesystemEvent{
+		Name: event.Name,
+		Type: normalizeFilesystemEventType(event.Type),
+	}
+}
+
+func normalizeFileType(value cmd.FileType) FileType {
+	switch value {
+	case cmd.FileTypeDirectory:
+		return FileTypeDir
+	case cmd.FileTypeSymlink:
+		return FileTypeSymlink
+	default:
+		return FileTypeFile
+	}
+}
+
+func normalizeFilesystemEventType(value cmd.EventType) FilesystemEventType {
+	switch value {
+	case cmd.EventTypeCreate:
+		return FilesystemEventCreate
+	case cmd.EventTypeRemove:
+		return FilesystemEventRemove
+	case cmd.EventTypeRename:
+		return FilesystemEventRename
+	case cmd.EventTypeChmod:
+		return FilesystemEventChmod
+	default:
+		return FilesystemEventWrite
+	}
+}
+
 func isTerminalBuildStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "ready", "failed", "error", "cancelled":
@@ -1397,10 +1874,10 @@ func gitCommandOptions(opts *GitCloneOptions) *GitCommandOptions {
 		return &GitCommandOptions{}
 	}
 	return &GitCommandOptions{
-		Envs:    cloneStringMap(opts.Envs),
-		CWD:     opts.CWD,
-		Timeout: opts.Timeout,
-		User:    opts.User,
+		Envs:      cloneStringMap(opts.Envs),
+		CWD:       opts.CWD,
+		TimeoutMS: opts.TimeoutMS,
+		User:      opts.User,
 	}
 }
 
@@ -1409,11 +1886,22 @@ func cloneGitCommandOptions(opts *GitCommandOptions) GitCommandOptions {
 		return GitCommandOptions{}
 	}
 	return GitCommandOptions{
-		Envs:    cloneStringMap(opts.Envs),
-		CWD:     opts.CWD,
-		Timeout: opts.Timeout,
-		User:    opts.User,
+		Envs:      cloneStringMap(opts.Envs),
+		CWD:       opts.CWD,
+		TimeoutMS: opts.TimeoutMS,
+		User:      opts.User,
 	}
+}
+
+func resolvePositiveRuntimeTimeoutMilliseconds(timeoutMS *int64) (*int64, error) {
+	if timeoutMS == nil {
+		return nil, nil
+	}
+	value := *timeoutMS
+	if value <= 0 {
+		return nil, fmt.Errorf("sandbox: timeoutMs must be a positive number")
+	}
+	return &value, nil
 }
 
 func buildGitExecution(subcommand string, args []string, user string) (string, []string) {
@@ -1424,6 +1912,17 @@ func buildGitExecution(subcommand string, args []string, user string) (string, [
 	return "sh", []string{
 		"-lc",
 		"su -s /bin/sh " + shellQuote(user) + " -c " + shellQuote(shellJoin(append([]string{"git"}, gitArgs...))),
+	}
+}
+
+func buildCommandExecution(command string, args []string, user string) (string, []string) {
+	trimmedUser := strings.TrimSpace(user)
+	if trimmedUser == "" {
+		return command, args
+	}
+	return "sh", []string{
+		"-lc",
+		"su -s /bin/sh " + shellQuote(trimmedUser) + " -c " + shellQuote(shellJoin(append([]string{command}, args...))),
 	}
 }
 
@@ -2192,6 +2691,27 @@ func maybeRunAsUser(command, user string) string {
 	return "su -s /bin/sh " + shellQuote(strings.TrimSpace(user)) + " -c " + shellQuote(command)
 }
 
+func filesystemRequestOptions(opts *FilesystemRequestOptions) *cmd.RequestOptions {
+	if opts == nil || strings.TrimSpace(opts.User) == "" {
+		return nil
+	}
+	return &cmd.RequestOptions{Username: strings.TrimSpace(opts.User)}
+}
+
+func filesystemListOptions(opts *FilesystemListOptions) *cmd.RequestOptions {
+	if opts == nil || strings.TrimSpace(opts.User) == "" {
+		return nil
+	}
+	return &cmd.RequestOptions{Username: strings.TrimSpace(opts.User)}
+}
+
+func watchDirRequestOptions(opts *WatchDirOptions) *cmd.RequestOptions {
+	if opts == nil || strings.TrimSpace(opts.User) == "" {
+		return nil
+	}
+	return &cmd.RequestOptions{Username: strings.TrimSpace(opts.User)}
+}
+
 func (h *CommandHandle) Close() error {
 	if h == nil || h.stream == nil {
 		return nil
@@ -2211,6 +2731,10 @@ func (h *CommandHandle) SendStdin(ctx context.Context, data string) error {
 		Process: cmd.ProcessSelector{PID: h.PID},
 		Input:   input,
 	}, nil)
+}
+
+func (h *CommandHandle) SendInput(ctx context.Context, data string) error {
+	return h.SendStdin(ctx, data)
 }
 
 func (h *CommandHandle) CloseStdin(ctx context.Context) error {
@@ -2256,6 +2780,12 @@ func (h *CommandHandle) Wait(ctx context.Context) (*CommandWaitResult, error) {
 			result.Stdout += stdoutChunk
 			result.Stderr += stderrChunk
 			result.PTY += ptyChunk
+			if stdoutChunk != "" && h.onStdout != nil {
+				h.onStdout(stdoutChunk)
+			}
+			if stderrChunk != "" && h.onStderr != nil {
+				h.onStderr(stderrChunk)
+			}
 			// Some runtimes stream PTY reconnect output through stdout/stderr instead of PTY.
 			if h.PTY && ptyChunk == "" {
 				result.PTY += stdoutChunk + stderrChunk
@@ -2333,6 +2863,50 @@ func runtimeProxyURL(baseURL string, port int) (string, error) {
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
 	return parsed.String(), nil
+}
+
+func runtimeFileURL(baseURL, accessToken, filePath, operation string, opts *SandboxURLOptions) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return "", err
+	}
+	basePath := strings.TrimRight(parsed.Path, "/")
+	parsed.Path = basePath + "/files"
+	parsed.Fragment = ""
+	query := parsed.Query()
+	if strings.TrimSpace(filePath) != "" {
+		query.Set("path", strings.TrimSpace(filePath))
+	}
+	username := ""
+	if opts != nil {
+		username = strings.TrimSpace(opts.User)
+		if username != "" {
+			query.Set("username", username)
+		}
+	}
+	secret := strings.TrimSpace(accessToken)
+	if secret != "" {
+		var expiration *int64
+		if opts != nil && opts.UseSignatureExpiration != nil {
+			if *opts.UseSignatureExpiration <= 0 {
+				return "", fmt.Errorf("sandbox: UseSignatureExpiration must be a positive integer")
+			}
+			expiration = opts.UseSignatureExpiration
+			query.Set("signature_expiration", strconv.FormatInt(*expiration, 10))
+		}
+		query.Set("signature", signFileURL(strings.TrimSpace(filePath), operation, username, secret, expiration))
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
+}
+
+func signFileURL(filePath, operation, username, secret string, expiration *int64) string {
+	raw := filePath + ":" + operation + ":" + username + ":" + secret
+	if expiration != nil {
+		raw += ":" + strconv.FormatInt(*expiration, 10)
+	}
+	sum := sha256.Sum256([]byte(raw))
+	return "v1_" + strings.TrimRight(base64.StdEncoding.EncodeToString(sum[:]), "=")
 }
 
 func isMissingProcessError(err error) bool {

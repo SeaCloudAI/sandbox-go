@@ -14,7 +14,7 @@ import (
 
 func main() {
 	ctx := context.Background()
-	mustEnv("E2B_API_KEY")
+	mustEnv("SEACLOUD_API_KEY")
 
 	templateID := mustEnv("SANDBOX_EXAMPLE_TEMPLATE_ID")
 	keepResources := envEnabled("SANDBOX_EXAMPLE_KEEP_RESOURCES")
@@ -22,7 +22,7 @@ func main() {
 		log.Printf("warning: code_interpreter expects a code-interpreter template; base is usually not enough")
 	}
 	waitReady := true
-	timeout := int32(1800)
+	timeout := int64(1800)
 
 	sbx, err := sandbox.Create(ctx, templateID, &sandbox.CreateOptions{
 		WaitReady: &waitReady,
@@ -51,11 +51,11 @@ func main() {
 	}
 	log.Printf("default python context: %s -> %s", strings.TrimSpace(python1.Text()), strings.TrimSpace(python2.Text()))
 
-	pythonContextTimeout := 30
+	pythonContextTimeout := int64(30_000)
 	pythonContext, err := sbx.CreateCodeContext(ctx, &sandbox.CodeContextCreateOptions{
-		Language: "python",
-		CWD:      "/workspace",
-		Timeout:  &pythonContextTimeout,
+		Language:  "python",
+		CWD:       "/workspace",
+		TimeoutMS: &pythonContextTimeout,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -69,11 +69,11 @@ func main() {
 	}
 	log.Printf("explicit python context: %s", strings.TrimSpace(pythonIsolated.Text()))
 
-	bashContextTimeout := 10
+	bashContextTimeout := int64(10_000)
 	bashContext, err := sbx.CreateCodeContext(ctx, &sandbox.CodeContextCreateOptions{
-		Language: "bash",
-		CWD:      "/workspace",
-		Timeout:  &bashContextTimeout,
+		Language:  "bash",
+		CWD:       "/workspace",
+		TimeoutMS: &bashContextTimeout,
 	})
 	if err != nil {
 		log.Fatal(err)

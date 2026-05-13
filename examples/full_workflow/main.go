@@ -18,8 +18,8 @@ import (
 func main() {
 	ctx := context.Background()
 
-	apiKey := mustEnv("E2B_API_KEY")
-	gatewayBaseURL := firstNonEmpty(strings.TrimSpace(os.Getenv("E2B_DOMAIN")), "https://sandbox-gateway.cloud.seaart.ai")
+	apiKey := mustEnv("SEACLOUD_API_KEY")
+	gatewayBaseURL := firstNonEmpty(strings.TrimSpace(os.Getenv("SEACLOUD_BASE_URL")), "https://sandbox-gateway.cloud.seaart.ai")
 	runtimeBaseImage := mustEnv("SANDBOX_EXAMPLE_RUNTIME_BASE_IMAGE")
 	keepResources := envEnabled("SANDBOX_EXAMPLE_KEEP_RESOURCES")
 	transportOpts := gatewayTransportOptions()
@@ -89,10 +89,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("template detail: names=%v nextToken=%s", templateDetail.Names, templateDetail.NextToken)
+	log.Printf("template detail: names=%v buildCount=%v", templateDetail.Names, templateDetail.BuildCount)
 
 	waitReady := true
-	timeout := int32(1800)
+	timeout := int64(1800)
 	createdSandbox, err := sandbox.Create(ctx, templateID, &sandbox.CreateOptions{
 		WaitReady: &waitReady,
 		Timeout:   &timeout,
@@ -238,9 +238,5 @@ func intPtr(value int) *int {
 }
 
 func gatewayTransportOptions() []core.TransportOption {
-	opts := []core.TransportOption{core.WithTimeout(180 * time.Second)}
-	if projectID := strings.TrimSpace(os.Getenv("SEACLOUD_PROJECT_ID")); projectID != "" {
-		opts = append(opts, core.WithProjectID(projectID))
-	}
-	return opts
+	return []core.TransportOption{core.WithTimeout(180 * time.Second)}
 }

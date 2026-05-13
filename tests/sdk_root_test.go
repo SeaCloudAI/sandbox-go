@@ -19,12 +19,12 @@ func TestNewRuntimeInitializesBaseURL(t *testing.T) {
 	}
 }
 
-func TestPackageLevelHelpersUseE2BGatewayEnv(t *testing.T) {
+func TestPackageLevelHelpersUseSeaCloudGatewayEnv(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/sandboxes" || r.Method != http.MethodGet {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-		if got := r.Header.Get("X-API-Key"); got != "unit-auth-from-e2b" {
+		if got := r.Header.Get("X-API-Key"); got != "unit-auth-value" {
 			t.Fatalf("api key = %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -32,34 +32,18 @@ func TestPackageLevelHelpersUseE2BGatewayEnv(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv("E2B_DOMAIN", server.URL)
-	t.Setenv("E2B_API_KEY", "unit-auth-from-e2b")
+	t.Setenv("SEACLOUD_BASE_URL", server.URL)
+	t.Setenv("SEACLOUD_API_KEY", "unit-auth-value")
 
-	listed, err := sandbox.List(context.Background(), nil)
+	paginator, err := sandbox.List(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
+	listed, err := paginator.NextPage(context.Background())
+	if err != nil {
+		t.Fatalf("NextPage: %v", err)
+	}
 	if len(listed) != 0 {
 		t.Fatalf("listed = %#v", listed)
-	}
-}
-
-func TestPackageLevelHelpersIgnoreSeaCloudCompatibilityEnvVars(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/sandboxes" || r.Method != http.MethodGet {
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[]`))
-	}))
-	defer server.Close()
-
-	t.Setenv("E2B_DOMAIN", server.URL)
-	t.Setenv("SEACLOUD_BASE_URL", "https://seacloud.example.test")
-	t.Setenv("E2B_API_KEY", "unit-auth-from-e2b")
-	t.Setenv("SEACLOUD_API_KEY", "unit-auth-from-seacloud")
-
-	if _, err := sandbox.List(context.Background(), nil); err != nil {
-		t.Fatalf("List: %v", err)
 	}
 }

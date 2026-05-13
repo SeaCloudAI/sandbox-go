@@ -4,22 +4,44 @@ Run examples from the package root.
 
 Shared env:
 
-- `E2B_DOMAIN`
-- `E2B_API_KEY`
+- `SEACLOUD_BASE_URL`
+- `SEACLOUD_API_KEY`
 
-Before running any example, export these variables once in your shell. Use the gateway entrypoint documented in the root `README.md`.
+Before running any example, export these variables once in your shell. Use the gateway entrypoint documented in the package `README.md`.
 
-Example-specific inputs intentionally use the `SANDBOX_EXAMPLE_*` prefix so they do not collide with the production-oriented variables shown in the package root `README.md`.
+Example-specific inputs intentionally use the `SANDBOX_EXAMPLE_*` prefix so they do not collide with the production-oriented variables shown in the package `README.md`.
 Examples focus on the stable lifecycle, template, command, and PTY flows. Watcher APIs are covered in tests instead, because some sandbox filesystem layouts reject them entirely.
 
 Recommended reading order:
 
-1. `code_interpreter`: default Python context -> explicit Python context -> non-Python stateless `context`
-2. `full_workflow`: create a template -> trigger a build -> wait for build -> start sandbox -> connect runtime -> run -> logs/metrics -> cleanup
-3. `template_features`: `FromDockerfile` -> local `Copy(..., Mode/ResolveSymlinks/User)` -> `sandbox.BuildTemplateInBackground(...)` -> `sandbox.GetTemplateBuildStatus(...)` -> existence/detail
-4. `control_sandbox`: `sandbox.Create(...)` -> reload -> cleanup
-5. `cmd_smoke`: `sandbox.Create(...)` -> `Files()` / `Commands()`
-6. `build_template`: minimal `sandbox.BuildTemplate(...)`
+1. `zero_to_one`: env setup -> official templates -> lifecycle -> command/files -> frontend URL -> local-code template build
+2. `code_interpreter`: default Python context -> explicit Python context -> non-Python stateless `context`
+3. `full_workflow`: create a template -> trigger a build -> wait for build -> start sandbox -> connect runtime -> run -> logs/metrics -> cleanup
+4. `template_features`: `FromDockerfile` -> local `Copy(..., Mode/ResolveSymlinks/User)` -> `sandbox.BuildTemplateInBackground(...)` -> `sandbox.GetTemplateBuildStatus(...)` -> existence/detail
+5. `control_sandbox`: `sandbox.Create(...)` -> reload -> cleanup
+6. `cmd_smoke`: `sandbox.Create(...)` -> `Files()` / `Commands()`
+7. `build_template`: minimal `sandbox.BuildTemplate(...)`
+
+## Zero To One
+
+This is the tutorial-style example for first-time users:
+
+- create a `base` sandbox and run basic file/command operations
+- pause and resume the sandbox to show lifecycle management
+- create a `code-interpreter` sandbox and run Python code
+- deploy a tiny static frontend inside a sandbox and print the public proxy URL from `GetHost(3000)`
+- build a new template by uploading local frontend files with `Template.Copy(...)`
+
+Optional env:
+
+- `SANDBOX_EXAMPLE_BASE_TEMPLATE=base`
+- `SANDBOX_EXAMPLE_CODE_TEMPLATE=code-interpreter`
+- `SANDBOX_EXAMPLE_FRONTEND_TEMPLATE=code-interpreter`
+- `SANDBOX_EXAMPLE_KEEP_RESOURCES=1`
+
+```bash
+go run ./examples/zero_to_one
+```
 
 ## Code Interpreter
 
@@ -27,7 +49,7 @@ This example focuses on the E2B-style code interpreter facade:
 
 - repeated `RunCode(...)` calls sharing the default Python context
 - explicit stateful Python contexts with `CreateCodeContext(...)`
-- non-Python contexts acting as reusable execution profiles for `Language`, `CWD`, and `Timeout`
+- non-Python contexts acting as reusable execution profiles for `Language`, `CWD`, and `TimeoutMS`
 - requires a template that actually bundles the code-interpreter environment; `base` is not enough
 
 Required env:

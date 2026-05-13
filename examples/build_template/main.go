@@ -13,8 +13,8 @@ import (
 
 func main() {
 	ctx := context.Background()
-	if os.Getenv("E2B_API_KEY") == "" {
-		log.Fatal("E2B_API_KEY is required")
+	if os.Getenv("SEACLOUD_API_KEY") == "" {
+		log.Fatal("SEACLOUD_API_KEY is required")
 	}
 
 	image := strings.TrimSpace(os.Getenv("SANDBOX_EXAMPLE_BUILD_IMAGE"))

@@ -17,8 +17,8 @@ type sdkClient struct {
 
 func newSDKClient(t *testing.T, baseURL string, transportOpts ...core.TransportOption) *sdkClient {
 	t.Helper()
-	t.Setenv("E2B_DOMAIN", baseURL)
-	t.Setenv("E2B_API_KEY", "unit-auth-value")
+	t.Setenv("SEACLOUD_BASE_URL", baseURL)
+	t.Setenv("SEACLOUD_API_KEY", "unit-auth-value")
 	return &sdkClient{t: t, transportOps: transportOpts}
 }
 
@@ -30,7 +30,7 @@ func (c *sdkClient) Connect(ctx context.Context, sandboxID string, opts *sandbox
 	return sandbox.Connect(ctx, sandboxID, opts, c.transportOps...)
 }
 
-func (c *sdkClient) List(ctx context.Context, opts *sandbox.ListOptions) ([]*sandbox.SandboxHandle, error) {
+func (c *sdkClient) List(ctx context.Context, opts *sandbox.ListOptions) (*sandbox.SandboxPaginator, error) {
 	return sandbox.List(ctx, opts, c.transportOps...)
 }
 
@@ -66,6 +66,18 @@ func (c *sdkClient) DeleteTemplate(ctx context.Context, ref string) error {
 	return sandbox.DeleteTemplate(ctx, ref, c.transportOps...)
 }
 
+func (c *sdkClient) AssignTemplateTags(ctx context.Context, targetName string, tags []string) (*sandbox.TemplateTagInfo, error) {
+	return sandbox.AssignTemplateTags(ctx, targetName, tags, c.transportOps...)
+}
+
+func (c *sdkClient) GetTemplateTags(ctx context.Context, ref string) ([]sandbox.TemplateTag, error) {
+	return sandbox.GetTemplateTags(ctx, ref, c.transportOps...)
+}
+
+func (c *sdkClient) RemoveTemplateTags(ctx context.Context, ref string, tags []string) error {
+	return sandbox.RemoveTemplateTags(ctx, ref, tags, c.transportOps...)
+}
+
 func (c *sdkClient) CreateSandbox(ctx context.Context, req *control.NewSandboxRequest) (*sandbox.Sandbox, error) {
 	templateID := ""
 	opts := &sandbox.CreateOptions{}
@@ -81,15 +93,22 @@ func (c *sdkClient) CreateSandbox(ctx context.Context, req *control.NewSandboxRe
 }
 
 func (c *sdkClient) ListSandboxes(ctx context.Context, opts *control.ListSandboxesParams) ([]*sandbox.SandboxHandle, error) {
+	var paginator *sandbox.SandboxPaginator
+	var err error
 	if opts == nil {
-		return sandbox.List(ctx, nil, c.transportOps...)
+		paginator, err = sandbox.List(ctx, nil, c.transportOps...)
+	} else {
+		paginator, err = sandbox.List(ctx, &sandbox.ListOptions{
+			Metadata:  opts.Metadata,
+			State:     opts.State,
+			Limit:     opts.Limit,
+			NextToken: opts.NextToken,
+		}, c.transportOps...)
 	}
-	return sandbox.List(ctx, &sandbox.ListOptions{
-		Metadata:  opts.Metadata,
-		State:     opts.State,
-		Limit:     opts.Limit,
-		NextToken: opts.NextToken,
-	}, c.transportOps...)
+	if err != nil {
+		return nil, err
+	}
+	return paginator.NextPage(ctx)
 }
 
 func (c *sdkClient) Runtime(baseURL, accessToken string) (*sandbox.Runtime, error) {

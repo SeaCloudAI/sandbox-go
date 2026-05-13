@@ -52,7 +52,7 @@ func (c *Service) Shutdown(ctx context.Context) (*ShutdownResponse, error) {
 }
 
 func (c *Service) CreateSandbox(ctx context.Context, req *NewSandboxRequest) (*Sandbox, error) {
-	if req == nil {
+	if req == nil || strings.TrimSpace(req.TemplateID) == "" {
 		return nil, ErrTemplateEmpty
 	}
 
@@ -289,9 +289,9 @@ func (p *SandboxLogsParams) encode() url.Values {
 	return values
 }
 
-func validateTimeoutSeconds(timeout int32, field string) error {
-	if timeout < 0 || timeout > maxExtendSeconds {
-		return fmt.Errorf("sandbox: %s must be between 0 and %d", field, maxExtendSeconds)
+func validateTimeoutSeconds(timeout int64, field string) error {
+	if timeout < 0 || timeout > int64(maxExtendSeconds) {
+		return fmt.Errorf("sandbox: %s must be between 0 and %d", field, int64(maxExtendSeconds))
 	}
 	return nil
 }
