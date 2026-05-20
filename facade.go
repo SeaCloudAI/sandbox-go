@@ -939,6 +939,10 @@ type TemplateBunInstallOptions struct {
 type TemplateBuildOptions struct {
 	Tags           []string
 	BaseTemplateID string
+	Visibility     string
+	Envs           map[string]string
+	VolumeMounts   []build.TemplateVolumeMount
+	Workdir        string
 	CPUCount       *int32
 	MemoryMB       *int32
 	Wait           *bool
@@ -1377,12 +1381,7 @@ func buildTemplateWithService(
 		return nil, err
 	}
 	tags := dedupeStrings(append(parsedTags, opts.Tags...))
-	var extensions *build.PublicTemplateExtensions
-	if strings.TrimSpace(opts.BaseTemplateID) != "" {
-		extensions = &build.PublicTemplateExtensions{
-			BaseTemplateID: strings.TrimSpace(opts.BaseTemplateID),
-		}
-	}
+	extensions := templateBuildOptionsExtensions(opts)
 	created, err := buildService.CreateTemplate(ctx, &build.TemplateCreateRequest{
 		Name:       templateName,
 		Tags:       tags,
@@ -1474,6 +1473,41 @@ func buildTemplateWithService(
 		Template:   templateResp,
 		Build:      buildResp,
 	}, nil
+}
+
+func templateBuildOptionsExtensions(opts *TemplateBuildOptions) *build.PublicTemplateExtensions {
+	if opts == nil {
+		return nil
+	}
+	extensions := &build.PublicTemplateExtensions{}
+	hasExtensions := false
+	if strings.TrimSpace(opts.BaseTemplateID) != "" {
+		extensions.BaseTemplateID = strings.TrimSpace(opts.BaseTemplateID)
+		hasExtensions = true
+	}
+	if strings.TrimSpace(opts.Visibility) != "" {
+		extensions.Visibility = strings.TrimSpace(opts.Visibility)
+		hasExtensions = true
+	}
+	if len(opts.Envs) > 0 {
+		extensions.Envs = make(map[string]string, len(opts.Envs))
+		for k, v := range opts.Envs {
+			extensions.Envs[k] = v
+		}
+		hasExtensions = true
+	}
+	if len(opts.VolumeMounts) > 0 {
+		extensions.VolumeMounts = append([]build.TemplateVolumeMount(nil), opts.VolumeMounts...)
+		hasExtensions = true
+	}
+	if strings.TrimSpace(opts.Workdir) != "" {
+		extensions.Workdir = strings.TrimSpace(opts.Workdir)
+		hasExtensions = true
+	}
+	if !hasExtensions {
+		return nil
+	}
+	return extensions
 }
 
 func listTemplatesWithService(

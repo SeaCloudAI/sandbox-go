@@ -258,22 +258,32 @@ The first argument is a local path on your machine. The second argument is the d
 ### 7. Build Your Own Template From Local Code
 
 This uploads a local directory into the build context with `Copy(...)`, builds a new template, and sets a startup command for future sandboxes created from that template.
+This snippet uses `build.TemplateVolumeMount`, so include `github.com/SeaCloudAI/sandbox-go/build` in your imports.
 
 ```go
 wait := true
 built, err := sandbox.BuildTemplate(
 	ctx,
 	sandbox.NewTemplate().
-		FromTemplate("base").
-		Copy("./my-frontend", "/workspace/frontend", &sandbox.TemplateCopyOptions{
+		FromTemplate("nfs").
+		Copy("./my-frontend", "/app", &sandbox.TemplateCopyOptions{
 			ForceUpload: true,
 		}).
+		RunCmd("cd /app && npm install && npm run build", nil).
 		SetStartCmd(
-			"cd /workspace/frontend && python3 -m http.server 3000 --bind 0.0.0.0",
+			"mkdir -p /agent-workspace && if [ -z \"$(ls -A /agent-workspace 2>/dev/null)\" ]; then cp -a /app/. /agent-workspace/; fi && cd /agent-workspace && npm run start",
 			sandbox.WaitForPort(3000),
 		),
 	"my-frontend:v1",
 	&sandbox.TemplateBuildOptions{
+		BaseTemplateID: "tpl-nfs-0e70a5ababc44412",
+		Workdir:        "/agent-workspace",
+		VolumeMounts: []build.TemplateVolumeMount{{
+			Name:        "workspace",
+			Path:        "/agent-workspace",
+			StorageType: "nfs",
+			NfsHostPath: "/mnt/prod-sandbox-nfs-filesystem01",
+		}},
 		Wait:         &wait,
 		PollInterval: 2 * time.Second,
 	},
@@ -284,6 +294,8 @@ if err != nil {
 
 log.Print(built.TemplateID, built.BuildID)
 ```
+
+`Workdir` sets the default shell/file root. The actual persistent mount is declared by `VolumeMounts`; for NFS you must provide `StorageType: "nfs"` and the environment-specific `NfsHostPath`.
 
 Create a sandbox from the new template:
 
@@ -586,7 +598,69 @@ Low-level control APIs live in `control.Service`:
 
 - system: `Metrics`, `Shutdown`
 - sandboxes: `CreateSandbox`, `ListSandboxes`, `GetSandbox`, `DeleteSandbox`
-- sandbox operations: `GetSandboxLogs`, `PauseSandbox`, `ConnectSandbox`, `SetSandboxTimeout`, `RefreshSandbox`, `SendHeartbeat`
+- sandbox operations: `GetSandboxMetrics`, `ListSandboxMetrics`, `GetSandboxLogs`, `PauseSandbox`, `ConnectSandbox`, `SetSandboxTimeout`, `RefreshSandbox`, `SendHeartbeat`
+
+### Monitoring And Metrics
+
+The SDK exposes two different metrics surfaces:
+
+- **Control-plane sandbox metrics** use Atlas through the gateway. Prefer these for dashboards and fleet monitoring because they can include Grafana/Kata enriched fields such as load average, CPU breakdown, memory pressure, disk I/O, network throughput, and task counts.
+- **Runtime metrics** call the sandbox nano-executor `/metrics` endpoint through `EnvdURL`. Use these when you are already connected to one runtime and only need the raw in-sandbox snapshot. The runtime payload currently focuses on CPU, memory, and disk fields; network and disk-rate fields are available from the control-plane metrics surface.
+
+Control-plane metrics:
+
+```go
+ctx := context.Background()
+
+service, err := control.NewService(
+	os.Getenv("SEACLOUD_BASE_URL"),
+	os.Getenv("SEACLOUD_API_KEY"),
+)
+if err != nil {
+	log.Fatal(err)
+}
+
+single, err := service.GetSandboxMetrics(ctx, "sandbox-abc")
+if err != nil {
+	log.Fatal(err)
+}
+log.Printf("cpu=%.2f load1=%v memory=%v", single.CPUUsedPct, single.Load1, single.MemoryUsagePercent)
+log.Printf("network sent=%v disk write=%v", single.NetworkSentBytesPerSecond, single.DiskWriteBytesPerSecond)
+
+batch, err := service.ListSandboxMetrics(ctx, &control.SandboxMetricsParams{
+	SandboxIDs: []string{"sandbox-abc", "sandbox-def"},
+	Limit:      2,
+})
+if err != nil {
+	log.Fatal(err)
+}
+for _, item := range batch.Items {
+	log.Print(item.SandboxID)
+}
+```
+
+Control-plane snapshot fields include:
+
+- identity and status: `SandboxID`, `CollectedAt`, `Error`
+- CPU: `CPUCount`, `CPUUsedPct`, `Load1`, `Load5`, `Load15`, `CPUUserRate`, `CPUSystemRate`, `CPUIOWaitRate`, `CPUStealRate`
+- memory: `MemTotal`, `MemUsed`, `MemTotalMiB`, `MemUsedMiB`, `MemCache`, `MemoryAvailableBytes`, `MemoryUsagePercent`, swap fields
+- disk: `DiskUsed`, `DiskTotal`, `DiskReadOpsPerSecond`, `DiskWriteOpsPerSecond`, `DiskReadBytesPerSecond`, `DiskWriteBytesPerSecond`
+- network: `NetRxBytes`, `NetTxBytes`, `NetworkRecvBytesPerSecond`, `NetworkSentBytesPerSecond`, packet/error/drop rates
+- tasks and raw runtime snapshot: `TaskCurrent`, `TaskMax`, `Raw`
+
+Runtime metrics:
+
+```go
+runtimeMetrics, err := sbx.GetMetrics(ctx)
+if err != nil {
+	log.Fatal(err)
+}
+log.Printf("cpu=%.2f", runtimeMetrics.CPUUsedPct)
+log.Printf("mem=%d/%d MiB", runtimeMetrics.MemUsedMiB, runtimeMetrics.MemTotalMiB)
+log.Printf("disk=%d/%d", runtimeMetrics.DiskUsed, runtimeMetrics.DiskTotal)
+```
+
+Use `service.Metrics(ctx)` or `buildService.Metrics(ctx)` only when you need the Prometheus text output for the gateway services themselves. Those service metrics are not per-sandbox runtime metrics.
 
 ### Operator APIs
 
@@ -622,8 +696,8 @@ Low-level `build.Service` exposes:
 - builds: `CreateBuild`, `GetBuildFile`, `RollbackTemplate`, `ListBuilds`, `GetBuild`, `GetBuildStatus`, `GetBuildLogs`
 - tags: `AssignTemplateTags`, `DeleteTemplateTags`, `ListTemplateTags`
 
-The public template contract is split into three layers: E2B create fields (`Name`, `Tags`, `CPUCount`, `MemoryMB`), Atlas extension fields under `Extensions` (`BaseTemplateID`, `Visibility`, `Envs`, `StorageType`, `StorageSizeGB`, `VolumeMounts`), E2B update field `Public`, and build-only fields on `CreateBuild` (`FromImage`, `FromTemplate`, `Steps`, `StartCmd`, `ReadyCmd`, registry credentials, `Steps[].FilesHash`).
-When `Extensions.StorageType="nfs"`, the public API still does not expose `nfsHostPath`; each `VolumeMounts[i].Name` is treated as the per-sandbox NFS subdirectory name under the inherited base template's NFS root, and `VolumeMounts[i].Path` is the container mount path. A mount named `workspace` becomes the primary workspace path.
+The public template contract is split into three layers: E2B create fields (`Name`, `Tags`, `CPUCount`, `MemoryMB`), Atlas extension fields under `Extensions` (`BaseTemplateID`, `Visibility`, `Envs`, `VolumeMounts`, `Workdir`), E2B update field `Public`, and build-only fields on `CreateBuild` (`FromImage`, `FromTemplate`, `Steps`, `StartCmd`, `ReadyCmd`, registry credentials, `Steps[].FilesHash`).
+Each mount declares its own storage through `VolumeMounts[i].StorageType` plus the matching storage fields such as `NfsHostPath`, `StorageClass`/`StorageSizeGB`, `PersistentVolumeClaim`, or `ObjectBucket`. `Workdir` sets the sandbox default working directory and file API root; it does not create a mount by itself.
 Runtime behavior defaults from the image source: templates inheriting SeaCloud base/runtime templates keep the managed runtime, while direct external images run as plain business containers. `StartCmd` and `ReadyCmd` only provide startup and readiness commands on top of that default.
 Public create calls reject unsupported top-level write fields such as `Alias` and `Public`; public update calls only accept `Public`.
 

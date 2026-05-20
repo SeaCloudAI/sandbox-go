@@ -289,6 +289,22 @@ func Get(ctx context.Context, sandboxID string, transportOpts ...core.TransportO
 	return gateway.get(ctx, sandboxID)
 }
 
+func GetSandboxMetrics(ctx context.Context, sandboxID string, transportOpts ...core.TransportOption) (*control.SandboxMetricSnapshot, error) {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return gateway.getSandboxMetrics(ctx, sandboxID)
+}
+
+func ListSandboxMetrics(ctx context.Context, opts *control.SandboxMetricsParams, transportOpts ...core.TransportOption) (*control.SandboxMetricsResponse, error) {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return gateway.listSandboxMetrics(ctx, opts)
+}
+
 func GetInfo(ctx context.Context, sandboxID string, transportOpts ...core.TransportOption) (*SandboxInfo, error) {
 	gateway, err := newGatewayServicesFromEnv(transportOpts...)
 	if err != nil {

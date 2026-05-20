@@ -89,6 +89,32 @@ func (c *Service) GetSandbox(ctx context.Context, sandboxID string) (*SandboxDet
 	return &resp, nil
 }
 
+func (c *Service) GetSandboxMetrics(ctx context.Context, sandboxID string) (*SandboxMetricSnapshot, error) {
+	if strings.TrimSpace(sandboxID) == "" {
+		return nil, ErrSandboxIDEmpty
+	}
+
+	var resp SandboxMetricSnapshot
+	path := "/api/v1/sandboxes/" + url.PathEscape(sandboxID) + "/metrics"
+	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Service) ListSandboxMetrics(ctx context.Context, params *SandboxMetricsParams) (*SandboxMetricsResponse, error) {
+	var query url.Values
+	if params != nil {
+		query = params.encode()
+	}
+
+	var resp SandboxMetricsResponse
+	if _, err := c.DoJSON(ctx, http.MethodGet, "/api/v1/sandboxes/metrics", nil, query, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (c *Service) DeleteSandbox(ctx context.Context, sandboxID string) error {
 	if strings.TrimSpace(sandboxID) == "" {
 		return ErrSandboxIDEmpty
@@ -265,6 +291,23 @@ func (p *ListSandboxesParams) encode() url.Values {
 	}
 	if token := strings.TrimSpace(p.NextToken); token != "" {
 		values.Set("nextToken", token)
+	}
+	return values
+}
+
+func (p *SandboxMetricsParams) encode() url.Values {
+	values := make(url.Values)
+	ids := make([]string, 0, len(p.SandboxIDs))
+	for _, id := range p.SandboxIDs {
+		if value := strings.TrimSpace(id); value != "" {
+			ids = append(ids, value)
+		}
+	}
+	if len(ids) > 0 {
+		values.Set("sandbox_ids", strings.Join(ids, ","))
+	}
+	if p.Limit > 0 {
+		values.Set("limit", strconv.Itoa(p.Limit))
 	}
 	return values
 }

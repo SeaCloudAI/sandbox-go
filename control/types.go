@@ -91,6 +91,86 @@ type ListSandboxesParams struct {
 	NextToken string
 }
 
+// SandboxMetricsRaw is the raw nano-executor metrics payload embedded in a
+// control-plane metrics snapshot when available.
+type SandboxMetricsRaw struct {
+	Timestamp   int64   `json:"ts"`
+	CPUCount    int32   `json:"cpu_count"`
+	CPUUsedPct  float64 `json:"cpu_used_pct"`
+	MemTotal    int64   `json:"mem_total"`
+	MemUsed     int64   `json:"mem_used"`
+	MemTotalMiB int64   `json:"mem_total_mib"`
+	MemUsedMiB  int64   `json:"mem_used_mib"`
+	MemCache    int64   `json:"mem_cache"`
+	DiskUsed    int64   `json:"disk_used"`
+	DiskTotal   int64   `json:"disk_total"`
+	NetRxBytes  int64   `json:"net_rx_bytes"`
+	NetTxBytes  int64   `json:"net_tx_bytes"`
+}
+
+// SandboxMetricSnapshot is one sandbox control-plane metrics snapshot.
+type SandboxMetricSnapshot struct {
+	SandboxID   string    `json:"sandboxID"`
+	CollectedAt time.Time `json:"collectedAt"`
+	Error       string    `json:"error,omitempty"`
+
+	CPUCount      int32    `json:"cpuCount"`
+	CPUUsedPct    float64  `json:"cpuUsedPct"`
+	Load1         *float64 `json:"load1,omitempty"`
+	Load5         *float64 `json:"load5,omitempty"`
+	Load15        *float64 `json:"load15,omitempty"`
+	CPUUserRate   *float64 `json:"cpuUserRate,omitempty"`
+	CPUSystemRate *float64 `json:"cpuSystemRate,omitempty"`
+	CPUIOWaitRate *float64 `json:"cpuIOWaitRate,omitempty"`
+	CPUStealRate  *float64 `json:"cpuStealRate,omitempty"`
+
+	MemTotal             int64    `json:"memTotal"`
+	MemUsed              int64    `json:"memUsed"`
+	MemTotalMiB          int64    `json:"memTotalMiB"`
+	MemUsedMiB           int64    `json:"memUsedMiB"`
+	MemCache             int64    `json:"memCache"`
+	MemoryAvailableBytes *int64   `json:"memoryAvailableBytes,omitempty"`
+	MemoryUsagePercent   *float64 `json:"memoryUsagePercent,omitempty"`
+	SwapTotalBytes       *int64   `json:"swapTotalBytes,omitempty"`
+	SwapFreeBytes        *int64   `json:"swapFreeBytes,omitempty"`
+	SwapCachedBytes      *int64   `json:"swapCachedBytes,omitempty"`
+
+	DiskUsed                int64    `json:"diskUsed"`
+	DiskTotal               int64    `json:"diskTotal"`
+	DiskReadOpsPerSecond    *float64 `json:"diskReadOpsPerSecond,omitempty"`
+	DiskWriteOpsPerSecond   *float64 `json:"diskWriteOpsPerSecond,omitempty"`
+	DiskReadBytesPerSecond  *float64 `json:"diskReadBytesPerSecond,omitempty"`
+	DiskWriteBytesPerSecond *float64 `json:"diskWriteBytesPerSecond,omitempty"`
+
+	NetRxBytes                  int64    `json:"netRxBytes"`
+	NetTxBytes                  int64    `json:"netTxBytes"`
+	NetworkRecvBytesPerSecond   *float64 `json:"networkRecvBytesPerSecond,omitempty"`
+	NetworkSentBytesPerSecond   *float64 `json:"networkSentBytesPerSecond,omitempty"`
+	NetworkRecvPacketsPerSecond *float64 `json:"networkRecvPacketsPerSecond,omitempty"`
+	NetworkSentPacketsPerSecond *float64 `json:"networkSentPacketsPerSecond,omitempty"`
+	NetworkRecvErrorsPerSecond  *float64 `json:"networkRecvErrorsPerSecond,omitempty"`
+	NetworkSentErrorsPerSecond  *float64 `json:"networkSentErrorsPerSecond,omitempty"`
+	NetworkRecvDropsPerSecond   *float64 `json:"networkRecvDropsPerSecond,omitempty"`
+	NetworkSentDropsPerSecond   *float64 `json:"networkSentDropsPerSecond,omitempty"`
+	TaskCurrent                 *int64   `json:"taskCurrent,omitempty"`
+	TaskMax                     *int64   `json:"taskMax,omitempty"`
+
+	Raw *SandboxMetricsRaw `json:"raw,omitempty"`
+}
+
+// SandboxMetricsParams configures GET /api/v1/sandboxes/metrics.
+type SandboxMetricsParams struct {
+	SandboxIDs []string
+	Limit      int
+}
+
+// SandboxMetricsResponse is returned by batch sandbox metrics collection.
+type SandboxMetricsResponse struct {
+	CollectedAt time.Time                        `json:"collectedAt"`
+	Items       []SandboxMetricSnapshot          `json:"items"`
+	Sandboxes   map[string]SandboxMetricSnapshot `json:"sandboxes"`
+}
+
 // SandboxLogsParams configures GET /api/v1/sandboxes/:sandboxID/logs.
 type SandboxLogsParams struct {
 	Cursor    *int64

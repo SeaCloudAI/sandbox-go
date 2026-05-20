@@ -149,6 +149,106 @@ func TestListSandboxesEncodesMetadataAndState(t *testing.T) {
 	}
 }
 
+func TestSandboxMetricsEndpoints(t *testing.T) {
+	var calls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.String())
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/sandboxes/sb-1/metrics":
+			_, _ = w.Write([]byte(`{
+				"sandboxID":"sb-1",
+				"collectedAt":"2026-05-20T00:00:00Z",
+				"cpuCount":2,
+				"cpuUsedPct":12.5,
+				"load1":0.4,
+				"cpuUserRate":0.2,
+				"memTotal":2147483648,
+				"memUsed":1073741824,
+				"memTotalMiB":2048,
+				"memUsedMiB":1024,
+				"memCache":128,
+				"memoryUsagePercent":50,
+				"diskUsed":1024,
+				"diskTotal":2048,
+				"diskReadBytesPerSecond":4096,
+				"netRxBytes":10,
+				"netTxBytes":20,
+				"networkRecvBytesPerSecond":100,
+				"taskCurrent":3
+			}`))
+		case "/api/v1/sandboxes/metrics":
+			if got := r.URL.Query().Get("sandbox_ids"); got != "sb-1,sb-2" {
+				t.Fatalf("sandbox_ids = %q", got)
+			}
+			if got := r.URL.Query().Get("limit"); got != "2" {
+				t.Fatalf("limit = %q", got)
+			}
+			_, _ = w.Write([]byte(`{
+				"collectedAt":"2026-05-20T00:00:00Z",
+				"items":[{
+					"sandboxID":"sb-1",
+					"collectedAt":"2026-05-20T00:00:00Z",
+					"cpuCount":2,
+					"cpuUsedPct":12.5,
+					"memTotal":1,
+					"memUsed":1,
+					"memTotalMiB":1,
+					"memUsedMiB":1,
+					"memCache":0,
+					"diskUsed":1,
+					"diskTotal":1,
+					"netRxBytes":1,
+					"netTxBytes":1
+				}],
+				"sandboxes":{}
+			}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	service, err := control.NewService(server.URL, "unit-auth-value")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	single, err := service.GetSandboxMetrics(context.Background(), "sb-1")
+	if err != nil {
+		t.Fatalf("GetSandboxMetrics: %v", err)
+	}
+	if single.Load1 == nil || *single.Load1 != 0.4 {
+		t.Fatalf("load1 = %#v", single.Load1)
+	}
+	if single.MemoryUsagePercent == nil || *single.MemoryUsagePercent != 50 {
+		t.Fatalf("memoryUsagePercent = %#v", single.MemoryUsagePercent)
+	}
+	if single.DiskReadBytesPerSecond == nil || *single.DiskReadBytesPerSecond != 4096 {
+		t.Fatalf("diskReadBytesPerSecond = %#v", single.DiskReadBytesPerSecond)
+	}
+	if single.NetworkRecvBytesPerSecond == nil || *single.NetworkRecvBytesPerSecond != 100 {
+		t.Fatalf("networkRecvBytesPerSecond = %#v", single.NetworkRecvBytesPerSecond)
+	}
+	if single.TaskCurrent == nil || *single.TaskCurrent != 3 {
+		t.Fatalf("taskCurrent = %#v", single.TaskCurrent)
+	}
+
+	batch, err := service.ListSandboxMetrics(context.Background(), &control.SandboxMetricsParams{
+		SandboxIDs: []string{"sb-1", " ", "sb-2"},
+		Limit:      2,
+	})
+	if err != nil {
+		t.Fatalf("ListSandboxMetrics: %v", err)
+	}
+	if len(batch.Items) != 1 || batch.Items[0].SandboxID != "sb-1" {
+		t.Fatalf("batch items = %#v", batch.Items)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
 func TestRootListSandboxesReturnsBoundHandles(t *testing.T) {
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -554,6 +654,22 @@ func TestBoundSandboxHelpersUseStoredClient(t *testing.T) {
 			}`))
 		case strings.HasSuffix(r.URL.Path, "/logs"):
 			_, _ = w.Write([]byte(`{"logs":[]}`))
+		case strings.HasSuffix(r.URL.Path, "/metrics"):
+			_, _ = w.Write([]byte(`{
+				"sandboxID":"sb-1",
+				"collectedAt":"2026-05-20T00:00:00Z",
+				"cpuCount":1,
+				"cpuUsedPct":1,
+				"memTotal":1,
+				"memUsed":1,
+				"memTotalMiB":1,
+				"memUsedMiB":1,
+				"memCache":0,
+				"diskUsed":1,
+				"diskTotal":1,
+				"netRxBytes":1,
+				"netTxBytes":1
+			}`))
 		default:
 			_, _ = w.Write([]byte(`{
 				"sandboxID":"sb-1",
@@ -586,7 +702,14 @@ func TestBoundSandboxHelpersUseStoredClient(t *testing.T) {
 	if _, err := created.Logs(context.Background(), nil); err != nil {
 		t.Fatalf("Logs: %v", err)
 	}
-	if len(calls) != 3 {
+	metrics, err := created.Metrics(context.Background())
+	if err != nil {
+		t.Fatalf("Metrics: %v", err)
+	}
+	if metrics.SandboxID != "sb-1" {
+		t.Fatalf("metrics sandboxID = %q", metrics.SandboxID)
+	}
+	if len(calls) != 4 {
 		t.Fatalf("calls = %#v", calls)
 	}
 }

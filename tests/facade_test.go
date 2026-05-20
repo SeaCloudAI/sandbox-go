@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/SeaCloudAI/sandbox-go"
+	"github.com/SeaCloudAI/sandbox-go/build"
 	"github.com/SeaCloudAI/sandbox-go/cmd"
 )
 
@@ -745,6 +746,17 @@ func TestTemplateFacadeBuildForwardsHighLevelOptions(t *testing.T) {
 			if extensions["baseTemplateID"] != "tpl-base-1" {
 				t.Fatalf("extensions = %#v", extensions)
 			}
+			if extensions["workdir"] != "/agent-workspace" {
+				t.Fatalf("extensions = %#v", extensions)
+			}
+			envs, ok := extensions["envs"].(map[string]any)
+			if !ok || envs["NODE_ENV"] != "production" {
+				t.Fatalf("envs = %#v", extensions["envs"])
+			}
+			mounts, ok := extensions["volumeMounts"].([]any)
+			if !ok || len(mounts) != 1 {
+				t.Fatalf("volumeMounts = %#v", extensions["volumeMounts"])
+			}
 			_, _ = w.Write([]byte(`{"templateID":"tpl-options","buildID":"server-build-id","public":false,"names":["demo"],"tags":["v1","latest"],"aliases":[]}`))
 		case strings.Contains(r.URL.Path, "/builds/") && r.Method == http.MethodPost:
 			w.WriteHeader(http.StatusAccepted)
@@ -770,9 +782,17 @@ func TestTemplateFacadeBuildForwardsHighLevelOptions(t *testing.T) {
 	built, err := client.BuildTemplate(context.Background(), sandbox.NewTemplate().FromImage("docker.io/library/node:20"), "demo:v1", &sandbox.TemplateBuildOptions{
 		Tags:           []string{"v1", "latest"},
 		BaseTemplateID: "tpl-base-1",
-		CPUCount:       &cpuCount,
-		MemoryMB:       &memoryMB,
-		PollInterval:   time.Millisecond,
+		Envs:           map[string]string{"NODE_ENV": "production"},
+		VolumeMounts: []build.TemplateVolumeMount{{
+			Name:        "workspace",
+			Path:        "/agent-workspace",
+			StorageType: "nfs",
+			NfsHostPath: "/mnt/prod-sandbox-nfs-filesystem01",
+		}},
+		Workdir:      "/agent-workspace",
+		CPUCount:     &cpuCount,
+		MemoryMB:     &memoryMB,
+		PollInterval: time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("BuildTemplate: %v", err)

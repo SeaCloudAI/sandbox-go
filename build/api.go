@@ -436,6 +436,20 @@ func validatePublicTemplateExtensions(ext *PublicTemplateExtensions) error {
 	if strings.TrimSpace(ext.Visibility) == "official" {
 		return fmt.Errorf("sandbox: extensions.visibility=official is not supported by the public SDK")
 	}
+	if strings.TrimSpace(ext.Workdir) != "" && !strings.HasPrefix(strings.TrimSpace(ext.Workdir), "/") {
+		return fmt.Errorf("sandbox: extensions.workdir must be an absolute path")
+	}
+	for i, mount := range ext.VolumeMounts {
+		if strings.TrimSpace(mount.Name) == "" || strings.TrimSpace(mount.Path) == "" {
+			return fmt.Errorf("sandbox: extensions.volumeMounts[%d] requires name and path", i)
+		}
+		if !strings.HasPrefix(strings.TrimSpace(mount.Path), "/") {
+			return fmt.Errorf("sandbox: extensions.volumeMounts[%d].path must be an absolute path", i)
+		}
+		if strings.TrimSpace(mount.StorageType) == "" {
+			return fmt.Errorf("sandbox: extensions.volumeMounts[%d].storageType is required", i)
+		}
+	}
 	return nil
 }
 

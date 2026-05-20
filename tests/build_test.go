@@ -79,8 +79,9 @@ func TestCreateTemplateUsesGatewayAuthOnly(t *testing.T) {
 		MemoryMB: int32Ptr(1024),
 		Extensions: &build.PublicTemplateExtensions{
 			VolumeMounts: []build.TemplateVolumeMount{
-				{Name: "cache", Path: "/cache"},
+				{Name: "cache", Path: "/cache", StorageType: "ephemeral"},
 			},
+			Workdir: "/cache",
 		},
 	})
 	if err != nil {
@@ -238,6 +239,15 @@ func TestTemplateValidationRejectsUnsupportedPublicExtensions(t *testing.T) {
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "extensions.visibility=official is not supported by the public SDK") {
+		t.Fatalf("CreateTemplate error = %v", err)
+	}
+	_, err = service.CreateTemplate(context.Background(), &build.TemplateCreateRequest{
+		Name: "demo",
+		Extensions: &build.PublicTemplateExtensions{
+			VolumeMounts: []build.TemplateVolumeMount{{Name: "cache", Path: "/cache"}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "extensions.volumeMounts[0].storageType is required") {
 		t.Fatalf("CreateTemplate error = %v", err)
 	}
 

@@ -73,6 +73,14 @@ func (g *gatewayServices) getSandbox(ctx context.Context, sandboxID string) (*Sa
 	return bindSandboxDetail(g, sandbox), nil
 }
 
+func (g *gatewayServices) getSandboxMetrics(ctx context.Context, sandboxID string) (*control.SandboxMetricSnapshot, error) {
+	return g.control.GetSandboxMetrics(ctx, sandboxID)
+}
+
+func (g *gatewayServices) listSandboxMetrics(ctx context.Context, params *control.SandboxMetricsParams) (*control.SandboxMetricsResponse, error) {
+	return g.control.ListSandboxMetrics(ctx, params)
+}
+
 func (g *gatewayServices) listSandboxes(
 	ctx context.Context,
 	params *control.ListSandboxesParams,
@@ -164,6 +172,11 @@ func (s *Sandbox) GetMetrics(ctx context.Context) (*cmd.MetricsResponse, error) 
 
 func (s *Sandbox) Logs(ctx context.Context, params *control.SandboxLogsParams) (*control.SandboxLogsResponse, error) {
 	return s.gateway.control.GetSandboxLogs(ctx, s.SandboxID, params)
+}
+
+// Metrics reads the Atlas control-plane metrics snapshot for this sandbox.
+func (s *Sandbox) Metrics(ctx context.Context) (*control.SandboxMetricSnapshot, error) {
+	return s.gateway.getSandboxMetrics(ctx, s.SandboxID)
 }
 
 func (s *Sandbox) Pause(ctx context.Context) (bool, error) {
@@ -270,6 +283,11 @@ func (s *SandboxDetail) Logs(ctx context.Context, params *control.SandboxLogsPar
 	return s.gateway.control.GetSandboxLogs(ctx, s.SandboxID, params)
 }
 
+// Metrics reads the Atlas control-plane metrics snapshot for this sandbox.
+func (s *SandboxDetail) Metrics(ctx context.Context) (*control.SandboxMetricSnapshot, error) {
+	return s.gateway.getSandboxMetrics(ctx, s.SandboxID)
+}
+
 func (s *SandboxDetail) Pause(ctx context.Context) (bool, error) {
 	if isPausedSandboxState(s.State, s.Status) {
 		return false, nil
@@ -344,6 +362,11 @@ func (s *SandboxHandle) GetFullInfo(ctx context.Context) (*SandboxInfo, error) {
 		return nil, err
 	}
 	return normalizeSandboxInfo(detail.SandboxDetail), nil
+}
+
+// Metrics reads the Atlas control-plane metrics snapshot for this sandbox.
+func (s *SandboxHandle) Metrics(ctx context.Context) (*control.SandboxMetricSnapshot, error) {
+	return s.gateway.getSandboxMetrics(ctx, s.SandboxID)
 }
 
 func normalizeSandboxInfo(detail *control.SandboxDetail) *SandboxInfo {

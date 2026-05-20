@@ -6,18 +6,16 @@ type PublicTemplateExtensions struct {
 	BaseTemplateID string                `json:"baseTemplateID,omitempty"`
 	Visibility     string                `json:"visibility,omitempty"`
 	Envs           map[string]string     `json:"envs,omitempty"`
-	StorageType    string                `json:"storageType,omitempty"`
-	StorageSizeGB  *int32                `json:"storageSizeGB,omitempty"`
 	VolumeMounts   []TemplateVolumeMount `json:"volumeMounts,omitempty"`
+	Workdir        string                `json:"workdir,omitempty"`
 }
 
 type TemplateExtensions struct {
 	BaseTemplateID string                `json:"baseTemplateID,omitempty"`
 	Visibility     string                `json:"visibility,omitempty"`
 	Envs           map[string]string     `json:"envs,omitempty"`
-	StorageType    string                `json:"storageType,omitempty"`
-	StorageSizeGB  *int32                `json:"storageSizeGB,omitempty"`
 	VolumeMounts   []TemplateVolumeMount `json:"volumeMounts,omitempty"`
+	Workdir        string                `json:"workdir,omitempty"`
 	Image          string                `json:"image,omitempty"`
 	ImageSource    string                `json:"imageSource,omitempty"`
 	ProjectID      string                `json:"projectID,omitempty"`
@@ -28,8 +26,20 @@ type TemplateExtensions struct {
 }
 
 type TemplateVolumeMount struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name                  string `json:"name"`
+	Path                  string `json:"path"`
+	StorageType           string `json:"storageType"`
+	HostPath              string `json:"hostPath,omitempty"`
+	NfsHostPath           string `json:"nfsHostPath,omitempty"`
+	StorageClass          string `json:"storageClass,omitempty"`
+	StorageSizeGB         *int32 `json:"storageSizeGB,omitempty"`
+	PersistentVolumeClaim string `json:"persistentVolumeClaim,omitempty"`
+	EmptyDirSizeLimit     string `json:"emptyDirSizeLimit,omitempty"`
+	EmptyDirMedium        string `json:"emptyDirMedium,omitempty"`
+	ObjectBucket          string `json:"objectBucket,omitempty"`
+	ObjectKeyPrefix       string `json:"objectKeyPrefix,omitempty"`
+	ReadOnly              bool   `json:"readOnly,omitempty"`
+	SubPath               string `json:"subPath,omitempty"`
 }
 
 // TemplateCreateRequest is the request body for POST /api/v1/templates.
