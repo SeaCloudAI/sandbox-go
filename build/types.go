@@ -173,7 +173,7 @@ type TemplateResponse struct {
 	TTLSeconds            *int32               `json:"ttlSeconds,omitempty"`
 	DaemonImage           string               `json:"daemonImage,omitempty"`
 	CloudsinkURL          string               `json:"cloudsinkURL,omitempty"`
-	SandboxRoot           string               `json:"sandboxRoot,omitempty"`
+	Workdir               string               `json:"workdir,omitempty"`
 	ProbeTargets          string               `json:"probeTargets,omitempty"`
 	ProbeIntervalSecs     *int32               `json:"probeIntervalSecs,omitempty"`
 	ProbeTimeoutSecs      *int32               `json:"probeTimeoutSecs,omitempty"`
