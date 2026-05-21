@@ -247,8 +247,9 @@ type BuildTriggerResponse struct{}
 
 // FilePresenceResponse is returned by GET /api/v1/templates/:id/files/:hash.
 type FilePresenceResponse struct {
-	Present bool   `json:"present"`
-	URL     string `json:"url,omitempty"`
+	Present         bool   `json:"present"`
+	URL             string `json:"url,omitempty"`
+	MaxContextBytes int64  `json:"maxContextBytes,omitempty"`
 }
 
 // RollbackRequest is the request body for POST /api/v1/templates/:id/rollback.

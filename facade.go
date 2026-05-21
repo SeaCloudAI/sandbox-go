@@ -2392,7 +2392,10 @@ func resolveTemplateRequest(
 				if strings.TrimSpace(resp.URL) == "" {
 					return nil, fmt.Errorf("sandbox: build file upload URL is missing for hash %s", hash)
 				}
-				if err := uploadBuildFile(ctx, buildService, resp.URL, tarBytes); err != nil {
+				if err := validateBuildContextSize(int64(len(tarBytes)), resp.MaxContextBytes); err != nil {
+					return nil, err
+				}
+				if err := uploadBuildFile(ctx, buildService, resp.URL, tarBytes, resp.MaxContextBytes); err != nil {
 					return nil, err
 				}
 			}
@@ -2594,12 +2597,15 @@ func ensureTrailingSlash(value string) string {
 	return value + "/"
 }
 
-func uploadBuildFile(ctx context.Context, buildService *build.Service, rawURL string, data []byte) error {
+func uploadBuildFile(ctx context.Context, buildService *build.Service, rawURL string, data []byte, maxContextBytes int64) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, rawURL, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-tar")
+	if maxContextBytes > 0 {
+		req.Header.Set("x-goog-content-length-range", fmt.Sprintf("0,%d", maxContextBytes))
+	}
 	resp, err := buildService.Do(req)
 	if err != nil {
 		return err
@@ -2609,6 +2615,29 @@ func uploadBuildFile(ctx context.Context, buildService *build.Service, rawURL st
 		return fmt.Errorf("sandbox: build file upload failed with status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func validateBuildContextSize(sizeBytes, maxContextBytes int64) error {
+	if maxContextBytes <= 0 || sizeBytes <= maxContextBytes {
+		return nil
+	}
+	return fmt.Errorf("sandbox: build context archive size %s exceeds limit %s", formatByteSize(sizeBytes), formatByteSize(maxContextBytes))
+}
+
+func formatByteSize(sizeBytes int64) string {
+	if sizeBytes < 1024 {
+		return fmt.Sprintf("%dB", sizeBytes)
+	}
+	value := float64(sizeBytes)
+	unit := "B"
+	for _, candidate := range []string{"KiB", "MiB", "GiB", "TiB"} {
+		value /= 1024
+		unit = candidate
+		if value < 1024 {
+			break
+		}
+	}
+	return fmt.Sprintf("%.1f%s", value, unit)
 }
 
 func normalizeTemplateItems(values []string) []string {

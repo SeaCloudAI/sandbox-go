@@ -1828,6 +1828,7 @@ func TestTemplateBuildAutoUploadsLocalCopySources(t *testing.T) {
 
 	uploads := 0
 	var uploadBody []byte
+	var uploadContentLengthRange string
 	var copiedStep map[string]any
 	var serverURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1837,9 +1838,10 @@ func TestTemplateBuildAutoUploadsLocalCopySources(t *testing.T) {
 			w.WriteHeader(http.StatusAccepted)
 			_, _ = w.Write([]byte(`{"templateID":"tpl-copy","buildID":"build-copy","public":false,"names":["demo"],"tags":["auto-copy"],"aliases":[]}`))
 		case strings.Contains(r.URL.Path, "/files/") && r.Method == http.MethodGet:
-			_, _ = w.Write([]byte(`{"present":false,"url":"` + serverURL + `/upload/file.tar"}`))
+			_, _ = w.Write([]byte(`{"present":false,"url":"` + serverURL + `/upload/file.tar","maxContextBytes":104857600}`))
 		case r.URL.Path == "/upload/file.tar" && r.Method == http.MethodPut:
 			uploads++
+			uploadContentLengthRange = r.Header.Get("x-goog-content-length-range")
 			uploadBody, _ = io.ReadAll(r.Body)
 			w.WriteHeader(http.StatusOK)
 		case strings.Contains(r.URL.Path, "/builds/") && r.Method == http.MethodPost:
@@ -1882,6 +1884,9 @@ func TestTemplateBuildAutoUploadsLocalCopySources(t *testing.T) {
 	}
 	if len(uploadBody) < 2 || !bytes.Equal(uploadBody[:2], []byte{0x1f, 0x8b}) {
 		t.Fatalf("upload header = %v", header)
+	}
+	if uploadContentLengthRange != "0,104857600" {
+		t.Fatalf("upload content length range header = %q", uploadContentLengthRange)
 	}
 	steps := copiedStep["steps"].([]any)
 	first := steps[0].(map[string]any)
