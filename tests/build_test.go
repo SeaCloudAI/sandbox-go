@@ -59,6 +59,8 @@ func TestCreateTemplateUsesGatewayAuthOnly(t *testing.T) {
 		_, _ = w.Write([]byte(`{
 			"templateID":"tpl-1",
 			"buildID":"build-1",
+			"type":"custom",
+			"version":"v0.1.0",
 			"public":false,
 			"names":["user-1/demo"],
 			"tags":["v1"],
@@ -90,6 +92,9 @@ func TestCreateTemplateUsesGatewayAuthOnly(t *testing.T) {
 	if len(resp.Names) != 1 || resp.Names[0] != "user-1/demo" {
 		t.Fatalf("names = %#v", resp.Names)
 	}
+	if resp.Type != "custom" || resp.Version != "v0.1.0" {
+		t.Fatalf("type/version = %q/%q", resp.Type, resp.Version)
+	}
 }
 
 func TestGetTemplateDecodesFullResponse(t *testing.T) {
@@ -101,6 +106,8 @@ func TestGetTemplateDecodesFullResponse(t *testing.T) {
 		_, _ = w.Write([]byte(`{
 			"templateID":"tpl-1",
 			"buildID":"build-2",
+			"type":"custom",
+			"version":"v0.1.0",
 			"buildStatus":"ready",
 			"cpuCount":2,
 			"memoryMB":1024,
@@ -152,6 +159,9 @@ func TestGetTemplateDecodesFullResponse(t *testing.T) {
 	}
 	if resp.TemplateID != "tpl-1" {
 		t.Fatalf("response = %#v", resp)
+	}
+	if resp.Type != "custom" || resp.Version != "v0.1.0" {
+		t.Fatalf("type/version = %q/%q", resp.Type, resp.Version)
 	}
 	if resp.BuildID != "build-2" || resp.BuildStatus != "ready" {
 		t.Fatalf("build fields = %#v", resp)

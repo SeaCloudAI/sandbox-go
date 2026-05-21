@@ -60,6 +60,8 @@ type TemplateUpdateRequest struct {
 type TemplateCreateResponse struct {
 	TemplateID string   `json:"templateID"`
 	BuildID    string   `json:"buildID"`
+	Type       string   `json:"type,omitempty"`
+	Version    string   `json:"version,omitempty"`
 	Public     bool     `json:"public"`
 	Names      []string `json:"names"`
 	Tags       []string `json:"tags"`
@@ -112,6 +114,8 @@ type TemplateDNSOption struct {
 type ListedTemplate struct {
 	TemplateID    string              `json:"templateID"`
 	BuildID       string              `json:"buildID,omitempty"`
+	Type          string              `json:"type,omitempty"`
+	Version       string              `json:"version,omitempty"`
 	CPUCount      int32               `json:"cpuCount"`
 	MemoryMB      int32               `json:"memoryMB"`
 	DiskSizeMB    int32               `json:"diskSizeMB"`
