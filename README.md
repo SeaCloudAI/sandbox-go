@@ -1,17 +1,15 @@
-# Sandbox Go SDK
+# SeaCloudAI Sandbox Go SDK
 
-Go SDK for Sandbox control-plane, build-plane, and nano-executor CMD APIs.
+Run code, agent workflows, and lightweight services in isolated cloud sandboxes from Go. The SDK gives you a Go-native E2B-style workflow for sandbox lifecycle, files, commands, PTY, code execution, service proxying, and reusable template builds.
 
-## Product Highlights
+## Why SeaCloudAI Sandbox
 
-SeaCloudAI Sandbox gives you a cloud runtime for code execution, agent workflows, lightweight services, and custom template builds.
-
-- **Start fast with official templates**: use `base` for files, commands, git, and PTY; use `code-interpreter` for multi-language code execution; use agent templates such as `claude` or `codex` when those environments are published.
-- **Manage the full sandbox lifecycle**: create, connect, pause, resume, refresh timeout, inspect logs, and delete sandboxes through one SDK.
-- **Run real workloads inside the sandbox**: write files, execute commands, start background services, open PTY sessions, and expose HTTP services with `GetHost(port)`.
-- **Move from local code to reusable templates**: upload files to a running sandbox for quick iteration, then bake local code into a custom template with `Template.Copy(...)`.
-- **Use one workflow across languages**: Node, Python, and Go SDKs expose the same core sandbox, runtime, and template-building concepts.
-- **Keep an E2B-style public workflow**: lifecycle, files, commands, PTY, code interpreter, and template helpers follow familiar E2B-style patterns while using SeaCloudAI gateway and runtime configuration.
+- **Cloud sandboxes without infrastructure work**: create disposable isolated runtimes without managing Kubernetes, containers, runtime tokens, or service proxies yourself.
+- **One object for the full workflow**: create a sandbox, write files, run commands, open a PTY, clone git repos, expose a web service, inspect logs, and clean up from the same SDK.
+- **Official templates for fast starts**: use `base` for files, commands, git, and PTY; use `code-interpreter` for multi-language code execution; use agent templates such as `claude` or `codex` when your environment publishes them.
+- **Reusable environments**: prototype in a running sandbox, then bake stable setup into a custom `tpl-...` template that can be pinned and reused in production.
+- **Familiar migration path**: lifecycle, filesystem, commands, PTY, code interpreter, and template helpers follow E2B-style patterns while using SeaCloudAI gateway and runtime configuration.
+- **Same concepts across SDKs**: Node, Python, and Go expose the same core sandbox, runtime, and template-building model.
 
 ## Install
 
@@ -19,28 +17,7 @@ SeaCloudAI Sandbox gives you a cloud runtime for code execution, agent workflows
 go get github.com/SeaCloudAI/sandbox-go
 ```
 
-## Entrypoints
-
-Preferred public API:
-
-- preferred sandbox entrypoint: package-level helpers such as `sandbox.Create(...)`, `sandbox.Connect(...)`, and `sandbox.List(...)`, which read gateway config from env by default
-- sandbox runtime modules from the returned object: `created.Commands()`, `created.Files()`, `created.Git()`, `created.Pty()`
-- preferred template entrypoint: package-level helpers such as `sandbox.BuildTemplate(...)`, `sandbox.BuildTemplateInBackground(...)`, `sandbox.ListTemplates(...)`, and `sandbox.GetTemplate(...)`
-- low-level control/build transports via `control.NewService(...)` and `build.NewService(...)`
-- raw runtime helpers: `createdSandbox.Runtime()`, `sandbox.RuntimeFromSandbox(...)`, `sandbox.RuntimeFromDetail(...)`, and `sandbox.NewRuntime(...)`
-
-High-level package helpers read gateway config from `SEACLOUD_BASE_URL` / `SEACLOUD_API_KEY`. Low-level `control`, `build`, and runtime helpers can still be initialized explicitly when needed. Runtime access is derived from sandbox create/detail/connect responses; callers should not hardcode runtime endpoints or tokens.
-
-## E2B Alignment
-
-- Supported alignment target: sandbox lifecycle, files, commands, git, PTY, and the high-level template DSL are designed to follow the same public workflow as `e2b-docs/sdk`.
-- Code interpreter alignment: `sandbox.RunCode(...)` is available for `python`, `javascript`, `typescript`, `bash`, `r`, and `java`. Python results support `display(...)`, last-expression capture, tables, Matplotlib PNG/chart payloads, a persistent default execution context, and stateful `CreateCodeContext/ListCodeContexts/RestartCodeContext/RemoveCodeContext` helpers. Non-Python contexts use the same API surface but currently behave as stateless execution profiles.
-- Known unsupported area: snapshot APIs are not exposed because the underlying platform does not support them yet.
-- Known partial area: only Python contexts are stateful. Non-Python contexts still execute in isolated one-shot processes.
-- Go-specific note: the SDK aims for semantic equivalence rather than identical hand feel. Method names, `context.Context`, and `(..., error)` returns stay Go-native on purpose.
-- Runtime normalization note: the SDK smooths a few runtime-specific quirks so the high-level behavior stays E2B-like, such as missing-process `Kill()` results and PTY reconnect output framing.
-
-## Environment
+## Configure
 
 Use environment variables for gateway configuration in all examples and quick starts:
 
@@ -60,9 +37,74 @@ Default production gateway:
 https://sandbox-gateway.cloud.seaart.ai
 ```
 
+The SeaCloudAI production gateway is currently hosted under the `seaart.ai` domain.
+
 High-level create helpers require an explicit template reference. Pass a concrete template ID such as `tpl-...` or a stable official template type such as `base`, `code-interpreter`, `claude`, or `codex` when your environment publishes those official templates.
 
-## From Zero To One
+## 60-Second Quickstart
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+
+	sandbox "github.com/SeaCloudAI/sandbox-go"
+)
+
+func main() {
+	ctx := context.Background()
+	ready := true
+	timeout := int64(1800)
+
+	sbx, err := sandbox.Create(ctx, "base", &sandbox.CreateOptions{
+		WaitReady: &ready,
+		Timeout:   &timeout,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sbx.Delete(ctx)
+
+	files, err := sbx.Files()
+	if err != nil {
+		log.Fatal(err)
+	}
+	_, _ = files.Write(ctx, "/root/workspace/hello.txt", []byte("hello from SeaCloudAI\n"))
+
+	commands, err := sbx.Commands()
+	if err != nil {
+		log.Fatal(err)
+	}
+	result, err := commands.Run(ctx, "sh", &sandbox.CommandRunOptions{
+		Args: []string{"-lc", "cat /root/workspace/hello.txt && uname -a"},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Print(result.Stdout)
+}
+```
+
+That is the core loop: create an isolated cloud runtime, move files in, run real commands, and clean it up. Use `GetHost(port)` when you start an HTTP service and want a public proxy URL.
+
+## Main Entrypoints
+
+- `sandbox.Create(...)`, `sandbox.Connect(...)`, `sandbox.List(...)`: create and manage sandboxes.
+- `Commands()`, `Files()`, `Git()`, `Pty()`: work inside a running sandbox.
+- `RunCode(...)`: execute code in `code-interpreter` templates.
+- `sandbox.NewTemplate()`, `sandbox.BuildTemplate(...)`, `sandbox.BuildTemplateInBackground(...)`: build reusable templates.
+- `control.NewService(...)`, `build.NewService(...)`: low-level transports for advanced integrations.
+
+Runtime access is derived from sandbox create/detail/connect responses. Do not hardcode runtime endpoints or tokens. The SDK stays Go-native with `context.Context` and `(..., error)` returns while keeping the same concepts as the Node and Python SDKs.
+
+## E2B-Style Workflow
+
+The high-level lifecycle, filesystem, command, git, PTY, code interpreter, and template APIs are designed to feel familiar to E2B users. Snapshot APIs are not exposed yet because the underlying platform does not support them. Python code contexts are stateful; non-Python code contexts currently behave as reusable execution profiles over isolated one-shot processes.
+
+## Guided Walkthrough
 
 This section is the recommended path for first-time users. It starts from environment setup, then creates sandboxes from official templates, runs commands, exposes a frontend through `envdUrl`, and finally builds a reusable custom template from local code.
 
@@ -257,33 +299,21 @@ The first argument is a local path on your machine. The second argument is the d
 
 ### 7. Build Your Own Template From Local Code
 
-This uploads a local directory into the build context with `Copy(...)`, builds a new template, and sets a startup command for future sandboxes created from that template.
-This snippet uses `build.TemplateVolumeMount`, so include `github.com/SeaCloudAI/sandbox-go/build` in your imports.
+This uploads a local directory into the build context with `Copy(...)`, builds a reusable template image, and sets a startup command for future sandboxes created from that template.
 
 ```go
 wait := true
 built, err := sandbox.BuildTemplate(
 	ctx,
 	sandbox.NewTemplate().
-		FromTemplate("nfs").
+		FromNodeImage("20-alpine").
 		Copy("./my-frontend", "/app", &sandbox.TemplateCopyOptions{
 			ForceUpload: true,
 		}).
-		RunCmd("cd /app && npm install && npm run build", nil).
-		SetStartCmd(
-			"mkdir -p /agent-workspace && if [ -z \"$(ls -A /agent-workspace 2>/dev/null)\" ]; then cp -a /app/. /agent-workspace/; fi && cd /agent-workspace && npm run start",
-			sandbox.WaitForPort(3000),
-		),
+		RunCmd("cd /app && npm install", nil).
+		SetStartCmd("cd /app && npm start", sandbox.WaitForPort(3000)),
 	"my-frontend:v1",
 	&sandbox.TemplateBuildOptions{
-		BaseTemplateID: "tpl-nfs-0e70a5ababc44412",
-		Workdir:        "/agent-workspace",
-		VolumeMounts: []build.TemplateVolumeMount{{
-			Name:        "workspace",
-			Path:        "/agent-workspace",
-			StorageType: "nfs",
-			NfsHostPath: "/mnt/prod-sandbox-nfs-filesystem01",
-		}},
 		Wait:         &wait,
 		PollInterval: 2 * time.Second,
 	},
@@ -295,7 +325,7 @@ if err != nil {
 log.Print(built.TemplateID, built.BuildID)
 ```
 
-`Workdir` sets the default shell/file root. The actual persistent mount is declared by `VolumeMounts`; for NFS you must provide `StorageType: "nfs"` and the environment-specific `NfsHostPath`.
+Use `FromTemplate("base")` when you want to inherit a published SeaCloud template, or `FromNodeImage(...)`, `FromPythonImage(...)`, and other image helpers when a public base image is enough. Advanced storage options such as NFS, block volumes, and object storage are documented later in the build reference.
 
 Create a sandbox from the new template:
 
@@ -347,7 +377,7 @@ log.Print(url)
 - Retry model: treat create/delete/build operations as remote control-plane actions; add idempotency and retry policy in your application layer according to your workload.
 - Timeout semantics: sandbox lifecycle uses E2B-style `Timeout` seconds. Commands, PTY, git, and code execution helpers use `TimeoutMS` milliseconds. `core.WithTimeout(...)` controls the SDK HTTP client timeout.
 
-## Quick Start
+## Additional Examples
 
 ### Control Plane
 
