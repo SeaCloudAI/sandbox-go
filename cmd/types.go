@@ -328,6 +328,8 @@ type MetricsResponse struct {
 	MemCache    int64   `json:"mem_cache"`
 	DiskUsed    int64   `json:"disk_used"`
 	DiskTotal   int64   `json:"disk_total"`
+	NetRxBytes  int64   `json:"net_rx_bytes"`
+	NetTxBytes  int64   `json:"net_tx_bytes"`
 }
 
 type ConfigureRequest struct {
