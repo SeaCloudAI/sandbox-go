@@ -142,6 +142,34 @@ func TestCMDDiagnosticsRedactSignedQuery(t *testing.T) {
 	}
 }
 
+func TestCMDDiagnosticLoggerPanicDoesNotAffectRequests(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("hell"))
+	}))
+	defer server.Close()
+
+	service, err := cmd.NewService(server.URL, "unit-runtime-auth", cmd.WithLogger(func(event core.DiagnosticEvent) {
+		panic("logger failed")
+	}))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	resp, err := service.Download(context.Background(), &cmd.DownloadRequest{Path: "~/hello.txt"}, nil)
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if string(body) != "hell" {
+		t.Fatalf("body = %q", string(body))
+	}
+}
+
 func TestCMDEnvsConfigureAndPorts(t *testing.T) {
 	calls := make([]struct {
 		path   string

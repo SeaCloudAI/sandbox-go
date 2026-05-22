@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -42,6 +43,8 @@ type DiagnosticEvent struct {
 
 // DiagnosticLogger receives sanitized request lifecycle events.
 type DiagnosticLogger func(DiagnosticEvent)
+
+var diagnosticURLPattern = regexp.MustCompile(`https?://[^\s"'<>]+`)
 
 // WithHTTPClient replaces the default HTTP client for custom transport, proxy, or timeout control.
 func WithHTTPClient(httpClient *http.Client) TransportOption {
@@ -231,7 +234,7 @@ func (c *Transport) DoRequest(
 			Path:      sanitizeDiagnosticPath(req.URL),
 			RequestID: req.Header.Get("X-Request-ID"),
 			Duration:  time.Since(started),
-			Error:     err.Error(),
+			Error:     sanitizeDiagnosticError(err.Error()),
 		})
 		return nil, err
 	}
@@ -276,7 +279,7 @@ func (c *Transport) emitAPIError(req *http.Request, err error, duration time.Dur
 		Path:      sanitizeDiagnosticPath(req.URL),
 		RequestID: req.Header.Get("X-Request-ID"),
 		Duration:  duration,
-		Error:     err.Error(),
+		Error:     sanitizeDiagnosticError(err.Error()),
 	}
 	if apiErr, ok := err.(*APIError); ok {
 		event.RequestID = firstNonEmpty(apiErr.RequestID, event.RequestID)
@@ -289,6 +292,9 @@ func (c *Transport) emitAPIError(req *http.Request, err error, duration time.Dur
 
 func (c *Transport) emitDiagnostic(event DiagnosticEvent) {
 	if c.logger != nil {
+		defer func() {
+			_ = recover()
+		}()
 		c.logger(event)
 	}
 }
@@ -326,6 +332,16 @@ func sanitizeDiagnosticPath(u *url.URL) string {
 		return clone.EscapedPath()
 	}
 	return clone.EscapedPath() + "?" + clone.RawQuery
+}
+
+func sanitizeDiagnosticError(message string) string {
+	return diagnosticURLPattern.ReplaceAllStringFunc(message, func(raw string) string {
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			return "<redacted-url>"
+		}
+		return sanitizeDiagnosticPath(parsed)
+	})
 }
 
 func isSensitiveQueryKey(key string) bool {

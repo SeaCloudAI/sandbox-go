@@ -81,7 +81,7 @@ func (c *Service) Proxy(ctx context.Context, req *ProxyRequest) (*http.Response,
 			Path:      sanitizeDiagnosticPath(httpReq.URL),
 			RequestID: httpReq.Header.Get("X-Request-ID"),
 			Duration:  time.Since(started),
-			Error:     err.Error(),
+			Error:     sanitizeDiagnosticError(err.Error()),
 		})
 		return nil, err
 	}

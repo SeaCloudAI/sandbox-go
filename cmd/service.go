@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +36,8 @@ type Service struct {
 }
 
 type ServiceOption func(*Service)
+
+var diagnosticURLPattern = regexp.MustCompile(`https?://[^\s"'<>]+`)
 
 func WithLogger(logger core.DiagnosticLogger) ServiceOption {
 	return func(c *Service) {
@@ -199,7 +202,7 @@ func (c *Service) do(
 			Path:      sanitizeDiagnosticPath(req.URL),
 			RequestID: req.Header.Get("X-Request-ID"),
 			Duration:  time.Since(started),
-			Error:     err.Error(),
+			Error:     sanitizeDiagnosticError(err.Error()),
 		})
 		return nil, err
 	}
@@ -228,7 +231,7 @@ func (c *Service) emitAPIError(req *http.Request, err error, duration time.Durat
 		Path:      sanitizeDiagnosticPath(req.URL),
 		RequestID: req.Header.Get("X-Request-ID"),
 		Duration:  duration,
-		Error:     err.Error(),
+		Error:     sanitizeDiagnosticError(err.Error()),
 	}
 	if apiErr, ok := err.(*core.APIError); ok {
 		if apiErr.RequestID != "" {
@@ -243,6 +246,9 @@ func (c *Service) emitAPIError(req *http.Request, err error, duration time.Durat
 
 func (c *Service) emitDiagnostic(event core.DiagnosticEvent) {
 	if c.logger != nil {
+		defer func() {
+			_ = recover()
+		}()
 		c.logger(event)
 	}
 }
@@ -280,6 +286,16 @@ func sanitizeDiagnosticPath(u *url.URL) string {
 		return clone.EscapedPath()
 	}
 	return clone.EscapedPath() + "?" + clone.RawQuery
+}
+
+func sanitizeDiagnosticError(message string) string {
+	return diagnosticURLPattern.ReplaceAllStringFunc(message, func(raw string) string {
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			return "<redacted-url>"
+		}
+		return sanitizeDiagnosticPath(parsed)
+	})
 }
 
 func isSensitiveQueryKey(key string) bool {

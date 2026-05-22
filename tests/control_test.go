@@ -3,9 +3,11 @@ package tests
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,12 @@ import (
 	"github.com/SeaCloudAI/sandbox-go/control"
 	"github.com/SeaCloudAI/sandbox-go/core"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
 
 func TestCreateSandbox(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -214,6 +222,53 @@ func TestGatewayDiagnosticsIncludeAPIErrorDetails(t *testing.T) {
 	}
 	if last.RequestID != "server-req" || last.ErrorKind != core.APIErrorKindRateLimit || !last.Retryable {
 		t.Fatalf("error detail = %#v", last)
+	}
+}
+
+func TestGatewayDiagnosticLoggerPanicDoesNotAffectRequests(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	service, err := control.NewService(server.URL, "unit-auth-value", core.WithLogger(func(event core.DiagnosticEvent) {
+		panic("logger failed")
+	}))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	if _, err := service.ListSandboxes(context.Background(), nil); err != nil {
+		t.Fatalf("ListSandboxes: %v", err)
+	}
+}
+
+func TestGatewayDiagnosticNetworkErrorsRedactEmbeddedURLs(t *testing.T) {
+	var events []core.DiagnosticEvent
+	service, err := control.NewService(
+		"https://sandbox-gateway.cloud.seaart.ai",
+		"unit-auth-value",
+		core.WithHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return nil, &url.Error{Op: "Get", URL: req.URL.String() + "?signature=secret-token", Err: errors.New("failed")}
+		})}),
+		core.WithLogger(func(event core.DiagnosticEvent) {
+			events = append(events, event)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	if _, err := service.ListSandboxes(context.Background(), nil); err == nil {
+		t.Fatal("expected request error")
+	}
+	last := events[len(events)-1]
+	if last.Type != "error" {
+		t.Fatalf("event = %#v", last)
+	}
+	if strings.Contains(last.Error, "secret-token") || !strings.Contains(last.Error, "signature=%3Credacted%3E") {
+		t.Fatalf("error was not redacted: %q", last.Error)
 	}
 }
 
