@@ -379,7 +379,7 @@ if err != nil {
 _, _ = service.ListSandboxes(context.Background(), nil)
 ```
 
-Diagnostic events include method, path, request ID, status, duration, error kind, and retryability. They intentionally exclude request/response bodies and credential headers; sensitive query values such as tokens, signatures, and `api_key` are redacted.
+Diagnostic events include method, path, request ID, status, duration, error kind, and retryability. They intentionally exclude request/response bodies and credential headers; sensitive query values such as tokens, signatures, and `api_key` are redacted, including when a transport error embeds a URL. Logger failures are ignored so diagnostics cannot change request behavior.
 
 ## Production Readiness
 
