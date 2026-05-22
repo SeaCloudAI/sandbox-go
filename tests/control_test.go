@@ -149,6 +149,74 @@ func TestListSandboxesEncodesMetadataAndState(t *testing.T) {
 	}
 }
 
+func TestGatewayDiagnosticsIncludeRequestIDAndRedactSensitiveQuery(t *testing.T) {
+	var events []core.DiagnosticEvent
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Request-ID"); strings.TrimSpace(got) == "" {
+			t.Fatal("missing X-Request-ID")
+		}
+		if got := r.URL.Query().Get("nextToken"); got != "secret-page" {
+			t.Fatalf("nextToken = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	service, err := control.NewService(server.URL, "unit-auth-value", core.WithLogger(func(event core.DiagnosticEvent) {
+		events = append(events, event)
+	}))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	_, err = service.ListSandboxes(context.Background(), &control.ListSandboxesParams{NextToken: "secret-page"})
+	if err != nil {
+		t.Fatalf("ListSandboxes: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %#v", events)
+	}
+	if events[0].Type != "request" || events[0].Path != "/api/v1/sandboxes?nextToken=%3Credacted%3E" {
+		t.Fatalf("request event = %#v", events[0])
+	}
+	if events[0].RequestID == "" || events[1].RequestID != events[0].RequestID {
+		t.Fatalf("request ids = %#v", events)
+	}
+	if strings.Contains(events[0].Path, "secret-page") {
+		t.Fatalf("path leaked token: %s", events[0].Path)
+	}
+}
+
+func TestGatewayDiagnosticsIncludeAPIErrorDetails(t *testing.T) {
+	var events []core.DiagnosticEvent
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"code":429,"message":"quota exceeded","request_id":"server-req"}`))
+	}))
+	defer server.Close()
+
+	service, err := control.NewService(server.URL, "unit-auth-value", core.WithLogger(func(event core.DiagnosticEvent) {
+		events = append(events, event)
+	}))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	_, err = service.ListSandboxes(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected API error")
+	}
+	last := events[len(events)-1]
+	if last.Type != "error" || last.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("error event = %#v", last)
+	}
+	if last.RequestID != "server-req" || last.ErrorKind != core.APIErrorKindRateLimit || !last.Retryable {
+		t.Fatalf("error detail = %#v", last)
+	}
+}
+
 func TestSandboxMetricsEndpoints(t *testing.T) {
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

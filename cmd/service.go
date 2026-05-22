@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -28,9 +31,34 @@ type Service struct {
 	accessToken string
 	httpClient  *http.Client
 	userAgent   string
+	logger      core.DiagnosticLogger
 }
 
-func NewService(baseURL, accessToken string) (*Service, error) {
+type ServiceOption func(*Service)
+
+func WithLogger(logger core.DiagnosticLogger) ServiceOption {
+	return func(c *Service) {
+		c.logger = logger
+	}
+}
+
+func WithDebugLogger() ServiceOption {
+	return WithLogger(func(event core.DiagnosticEvent) {
+		log.Printf("seacloudai-sandbox-cmd type=%s method=%s path=%s request_id=%s status=%d duration_ms=%d error_kind=%s retryable=%v error=%s",
+			event.Type,
+			event.Method,
+			event.Path,
+			event.RequestID,
+			event.StatusCode,
+			event.Duration.Milliseconds(),
+			event.ErrorKind,
+			event.Retryable,
+			event.Error,
+		)
+	})
+}
+
+func NewService(baseURL, accessToken string, opts ...ServiceOption) (*Service, error) {
 	if strings.TrimSpace(baseURL) == "" {
 		return nil, ErrBaseURLEmpty
 	}
@@ -43,12 +71,18 @@ func NewService(baseURL, accessToken string) (*Service, error) {
 		return nil, &url.Error{Op: "parse", URL: baseURL, Err: ErrInvalidBaseURL}
 	}
 
-	return &Service{
+	service := &Service{
 		baseURL:     parsed,
 		accessToken: strings.TrimSpace(accessToken),
 		httpClient:  &http.Client{Timeout: 30 * time.Second},
 		userAgent:   core.UserAgent("seacloudai-sandbox-go-cmd"),
-	}, nil
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(service)
+		}
+	}
+	return service, nil
 }
 
 func (c *Service) BaseURL() string {
@@ -84,6 +118,7 @@ func (c *Service) newRequest(
 	if c.accessToken != "" {
 		req.Header.Set("X-Access-Token", c.accessToken)
 	}
+	ensureRequestID(req.Header)
 	if opts != nil {
 		for key, values := range opts.Headers {
 			for _, value := range values {
@@ -149,16 +184,107 @@ func (c *Service) do(
 		return nil, err
 	}
 
+	started := time.Now()
+	c.emitDiagnostic(core.DiagnosticEvent{
+		Type:      "request",
+		Method:    req.Method,
+		Path:      sanitizeDiagnosticPath(req.URL),
+		RequestID: req.Header.Get("X-Request-ID"),
+	})
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.emitDiagnostic(core.DiagnosticEvent{
+			Type:      "error",
+			Method:    req.Method,
+			Path:      sanitizeDiagnosticPath(req.URL),
+			RequestID: req.Header.Get("X-Request-ID"),
+			Duration:  time.Since(started),
+			Error:     err.Error(),
+		})
 		return nil, err
 	}
 	if statusAllowed(resp.StatusCode, expectedStatus) {
+		c.emitDiagnostic(core.DiagnosticEvent{
+			Type:       "response",
+			Method:     req.Method,
+			Path:       sanitizeDiagnosticPath(req.URL),
+			RequestID:  req.Header.Get("X-Request-ID"),
+			StatusCode: resp.StatusCode,
+			Duration:   time.Since(started),
+		})
 		return resp, nil
 	}
 
 	defer resp.Body.Close()
-	return nil, core.DecodeAPIError(resp)
+	err = core.DecodeAPIError(resp)
+	c.emitAPIError(req, err, time.Since(started))
+	return nil, err
+}
+
+func (c *Service) emitAPIError(req *http.Request, err error, duration time.Duration) {
+	event := core.DiagnosticEvent{
+		Type:      "error",
+		Method:    req.Method,
+		Path:      sanitizeDiagnosticPath(req.URL),
+		RequestID: req.Header.Get("X-Request-ID"),
+		Duration:  duration,
+		Error:     err.Error(),
+	}
+	if apiErr, ok := err.(*core.APIError); ok {
+		if apiErr.RequestID != "" {
+			event.RequestID = apiErr.RequestID
+		}
+		event.StatusCode = apiErr.StatusCode
+		event.ErrorKind = apiErr.Kind
+		event.Retryable = apiErr.Retryable()
+	}
+	c.emitDiagnostic(event)
+}
+
+func (c *Service) emitDiagnostic(event core.DiagnosticEvent) {
+	if c.logger != nil {
+		c.logger(event)
+	}
+}
+
+func ensureRequestID(headers http.Header) string {
+	if value := strings.TrimSpace(headers.Get("X-Request-ID")); value != "" {
+		return value
+	}
+	value := generateRequestID()
+	headers.Set("X-Request-ID", value)
+	return value
+}
+
+func generateRequestID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err == nil {
+		return hex.EncodeToString(b[:])
+	}
+	return "sdk-" + time.Now().Format("20060102150405.000000000")
+}
+
+func sanitizeDiagnosticPath(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	clone := *u
+	query := clone.Query()
+	for key := range query {
+		if isSensitiveQueryKey(key) {
+			query.Set(key, "<redacted>")
+		}
+	}
+	clone.RawQuery = query.Encode()
+	if clone.RawQuery == "" {
+		return clone.EscapedPath()
+	}
+	return clone.EscapedPath() + "?" + clone.RawQuery
+}
+
+func isSensitiveQueryKey(key string) bool {
+	normalized := strings.ToLower(key)
+	return strings.Contains(normalized, "token") || strings.Contains(normalized, "signature") || normalized == "api_key"
 }
 
 func (c *Service) resolve(path string, query url.Values) (string, error) {

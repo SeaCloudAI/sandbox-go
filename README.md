@@ -361,6 +361,26 @@ log.Print(url)
 - Frontend URL is unreachable: bind to `0.0.0.0`, confirm the port passed to `GetHost(...)`, and inspect whether the background process exited.
 - Build with local files fails: make sure `Copy(...)` points to an existing local path and use `ForceUpload: true` while iterating.
 
+## Diagnostics
+
+The SDK is quiet by default. Use `core.WithDebugLogger()` for standard-log request diagnostics, or `core.WithLogger(...)` to receive structured, sanitized lifecycle events from control/build clients. Runtime CMD clients use the matching `cmd.WithDebugLogger()` and `cmd.WithLogger(...)` options. Every SDK request carries `X-Request-ID`; response and error events include the same ID when available.
+
+```go
+service, err := control.NewService(
+	baseURL,
+	apiKey,
+	core.WithLogger(func(event core.DiagnosticEvent) {
+		log.Printf("%s %s %s request_id=%s status=%d", event.Type, event.Method, event.Path, event.RequestID, event.StatusCode)
+	}),
+)
+if err != nil {
+	log.Fatal(err)
+}
+_, _ = service.ListSandboxes(context.Background(), nil)
+```
+
+Diagnostic events include method, path, request ID, status, duration, error kind, and retryability. They intentionally exclude request/response bodies and credential headers; sensitive query values such as tokens, signatures, and `api_key` are redacted.
+
 ## Production Readiness
 
 - Package-level helpers are fine for simple env-first flows. For repeated low-level workflows, initialize one `control.Service` and/or `build.Service` and reuse them.

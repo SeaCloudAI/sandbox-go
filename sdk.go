@@ -50,12 +50,12 @@ func newGatewayServicesFromEnv(opts ...core.TransportOption) (*gatewayServices, 
 	return newGatewayServices("", "", opts...)
 }
 
-func NewCMD(baseURL, accessToken string) (*cmd.Service, error) {
-	return cmd.NewService(baseURL, accessToken)
+func NewCMD(baseURL, accessToken string, opts ...cmd.ServiceOption) (*cmd.Service, error) {
+	return cmd.NewService(baseURL, accessToken, opts...)
 }
 
-func NewRuntime(baseURL, accessToken string) (*Runtime, error) {
-	service, err := cmd.NewService(baseURL, accessToken)
+func NewRuntime(baseURL, accessToken string, opts ...cmd.ServiceOption) (*Runtime, error) {
+	service, err := cmd.NewService(baseURL, accessToken, opts...)
 	if err != nil {
 		return nil, err
 	}

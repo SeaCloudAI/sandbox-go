@@ -8,6 +8,9 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/SeaCloudAI/sandbox-go/core"
 )
 
 func (c *Service) Metrics(ctx context.Context) (*MetricsResponse, error) {
@@ -63,7 +66,34 @@ func (c *Service) Proxy(ctx context.Context, req *ProxyRequest) (*http.Response,
 	if err != nil {
 		return nil, err
 	}
-	return c.httpClient.Do(httpReq)
+	started := time.Now()
+	c.emitDiagnostic(core.DiagnosticEvent{
+		Type:      "request",
+		Method:    httpReq.Method,
+		Path:      sanitizeDiagnosticPath(httpReq.URL),
+		RequestID: httpReq.Header.Get("X-Request-ID"),
+	})
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		c.emitDiagnostic(core.DiagnosticEvent{
+			Type:      "error",
+			Method:    httpReq.Method,
+			Path:      sanitizeDiagnosticPath(httpReq.URL),
+			RequestID: httpReq.Header.Get("X-Request-ID"),
+			Duration:  time.Since(started),
+			Error:     err.Error(),
+		})
+		return nil, err
+	}
+	c.emitDiagnostic(core.DiagnosticEvent{
+		Type:       "response",
+		Method:     httpReq.Method,
+		Path:       sanitizeDiagnosticPath(httpReq.URL),
+		RequestID:  httpReq.Header.Get("X-Request-ID"),
+		StatusCode: resp.StatusCode,
+		Duration:   time.Since(started),
+	})
+	return resp, nil
 }
 
 func (c *Service) Download(ctx context.Context, req *DownloadRequest, opts *RequestOptions) (*http.Response, error) {

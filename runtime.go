@@ -12,7 +12,7 @@ type Runtime struct {
 	*cmd.Service
 }
 
-func RuntimeFromSandbox(sandbox *control.Sandbox) (*Runtime, error) {
+func RuntimeFromSandbox(sandbox *control.Sandbox, opts ...cmd.ServiceOption) (*Runtime, error) {
 	if sandbox == nil || sandbox.EnvdURL == nil || strings.TrimSpace(*sandbox.EnvdURL) == "" {
 		return nil, core.ErrBaseURLEmpty
 	}
@@ -21,10 +21,10 @@ func RuntimeFromSandbox(sandbox *control.Sandbox) (*Runtime, error) {
 	if sandbox.EnvdAccessToken != nil {
 		accessToken = *sandbox.EnvdAccessToken
 	}
-	return NewRuntime(*sandbox.EnvdURL, accessToken)
+	return NewRuntime(*sandbox.EnvdURL, accessToken, opts...)
 }
 
-func RuntimeFromDetail(sandbox *control.SandboxDetail) (*Runtime, error) {
+func RuntimeFromDetail(sandbox *control.SandboxDetail, opts ...cmd.ServiceOption) (*Runtime, error) {
 	if sandbox == nil || sandbox.EnvdURL == nil || strings.TrimSpace(*sandbox.EnvdURL) == "" {
 		return nil, core.ErrBaseURLEmpty
 	}
@@ -33,5 +33,5 @@ func RuntimeFromDetail(sandbox *control.SandboxDetail) (*Runtime, error) {
 	if sandbox.EnvdAccessToken != nil {
 		accessToken = *sandbox.EnvdAccessToken
 	}
-	return NewRuntime(*sandbox.EnvdURL, accessToken)
+	return NewRuntime(*sandbox.EnvdURL, accessToken, opts...)
 }

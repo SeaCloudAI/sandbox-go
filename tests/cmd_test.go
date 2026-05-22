@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/SeaCloudAI/sandbox-go/cmd"
+	"github.com/SeaCloudAI/sandbox-go/core"
 )
 
 func TestCMDListDirSetsConnectHeadersAndBasicAuth(t *testing.T) {
@@ -94,6 +95,50 @@ func TestCMDDownloadUsesQueryUsernameAndRange(t *testing.T) {
 	}
 	if string(body) != "hell" {
 		t.Fatalf("body = %q", string(body))
+	}
+}
+
+func TestCMDDiagnosticsRedactSignedQuery(t *testing.T) {
+	var events []core.DiagnosticEvent
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Request-ID"); strings.TrimSpace(got) == "" {
+			t.Fatal("missing X-Request-ID")
+		}
+		if got := r.URL.Query().Get("signature"); got != "signed-secret" {
+			t.Fatalf("signature = %q", got)
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("hell"))
+	}))
+	defer server.Close()
+
+	service, err := cmd.NewService(server.URL, "unit-runtime-auth", cmd.WithLogger(func(event core.DiagnosticEvent) {
+		events = append(events, event)
+	}))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	expires := int64(3600)
+	resp, err := service.Download(context.Background(), &cmd.DownloadRequest{Path: "~/hello.txt"}, &cmd.RequestOptions{
+		Signature:           "signed-secret",
+		SignatureExpiration: &expires,
+	})
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	defer resp.Body.Close()
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %#v", events)
+	}
+	if events[0].Type != "request" || strings.Contains(events[0].Path, "signed-secret") || !strings.Contains(events[0].Path, "signature=%3Credacted%3E") {
+		t.Fatalf("request event = %#v", events[0])
+	}
+	if events[1].Type != "response" || events[1].RequestID != events[0].RequestID {
+		t.Fatalf("response event = %#v", events[1])
 	}
 }
 
