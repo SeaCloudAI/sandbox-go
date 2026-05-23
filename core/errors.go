@@ -11,7 +11,6 @@ var (
 	ErrBaseURLEmpty   = errors.New("sandbox: baseURL is required")
 	ErrAPIKeyEmpty    = errors.New("sandbox: apiKey is required")
 	ErrInvalidBaseURL = errors.New("sandbox: baseURL must include scheme and host")
-	ErrNamespaceEmpty = errors.New("sandbox: namespaceID is required")
 	ErrUserIDEmpty    = errors.New("sandbox: userID is required")
 	ErrSandboxIDEmpty = errors.New("sandbox: sandboxID is required")
 	ErrTemplateEmpty  = errors.New("sandbox: templateID is required")

@@ -154,7 +154,7 @@ go run ./examples/template_features
 ## CMD Plane
 
 Recommended path: the example uses `sandbox.Create(...)` and then stays on `Files()` / `Commands()`.
-The selected template must include nano-executor runtime support; otherwise file/process/RPC calls can return `404`.
+The selected template must support managed runtime access; otherwise file/process/RPC calls can return `404`.
 The flow stays minimal: write file -> read file -> list directory -> run command.
 The example writes under `/root/workspace`, which is the writable sandbox workspace in the current SeaCloud runtime.
 

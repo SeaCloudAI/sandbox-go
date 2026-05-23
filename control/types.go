@@ -35,7 +35,6 @@ type Sandbox struct {
 	ClientID        string     `json:"clientID"`
 	EnvdAccessToken *string    `json:"envdAccessToken"`
 	EnvdURL         *string    `json:"envdUrl"`
-	Namespace       string     `json:"namespace,omitempty"`
 	Status          string     `json:"status"`
 	State           string     `json:"state,omitempty"`
 	StartedAt       time.Time  `json:"startedAt"`
@@ -61,7 +60,6 @@ type SandboxDetail struct {
 	State           string            `json:"state,omitempty"`
 	Lifecycle       SandboxLifecycle  `json:"lifecycle"`
 	VolumeMounts    []VolumeMount     `json:"volumeMounts,omitempty"`
-	Namespace       string            `json:"namespace,omitempty"`
 	ActivatedAt     *time.Time        `json:"activatedAt,omitempty"`
 }
 
@@ -89,23 +87,6 @@ type ListSandboxesParams struct {
 	State     []string
 	Limit     int
 	NextToken string
-}
-
-// SandboxMetricsRaw is the raw nano-executor metrics payload embedded in a
-// control-plane metrics snapshot when available.
-type SandboxMetricsRaw struct {
-	Timestamp   int64   `json:"ts"`
-	CPUCount    int32   `json:"cpu_count"`
-	CPUUsedPct  float64 `json:"cpu_used_pct"`
-	MemTotal    int64   `json:"mem_total"`
-	MemUsed     int64   `json:"mem_used"`
-	MemTotalMiB int64   `json:"mem_total_mib"`
-	MemUsedMiB  int64   `json:"mem_used_mib"`
-	MemCache    int64   `json:"mem_cache"`
-	DiskUsed    int64   `json:"disk_used"`
-	DiskTotal   int64   `json:"disk_total"`
-	NetRxBytes  int64   `json:"net_rx_bytes"`
-	NetTxBytes  int64   `json:"net_tx_bytes"`
 }
 
 // SandboxMetricSnapshot is one sandbox control-plane metrics snapshot.
@@ -154,8 +135,6 @@ type SandboxMetricSnapshot struct {
 	NetworkSentDropsPerSecond   *float64 `json:"networkSentDropsPerSecond,omitempty"`
 	TaskCurrent                 *int64   `json:"taskCurrent,omitempty"`
 	TaskMax                     *int64   `json:"taskMax,omitempty"`
-
-	Raw *SandboxMetricsRaw `json:"raw,omitempty"`
 }
 
 // SandboxMetricsParams configures GET /api/v1/sandboxes/metrics.

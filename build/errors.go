@@ -10,7 +10,6 @@ var (
 	ErrBaseURLEmpty   = core.ErrBaseURLEmpty
 	ErrAPIKeyEmpty    = core.ErrAPIKeyEmpty
 	ErrInvalidBaseURL = core.ErrInvalidBaseURL
-	ErrNamespaceEmpty = core.ErrNamespaceEmpty
 	ErrUserIDEmpty    = core.ErrUserIDEmpty
 	ErrTemplateEmpty  = core.ErrTemplateEmpty
 

@@ -161,7 +161,7 @@ func (s *Sandbox) GetFullInfo(ctx context.Context) (*SandboxInfo, error) {
 	return normalizeSandboxInfo(detail.SandboxDetail), nil
 }
 
-// GetMetrics reads runtime metrics for sandboxes that expose nano-executor access.
+// GetMetrics reads runtime metrics for sandboxes that expose managed runtime access.
 func (s *Sandbox) GetMetrics(ctx context.Context) (*cmd.MetricsResponse, error) {
 	runtime, err := s.Runtime()
 	if err != nil {
@@ -270,7 +270,7 @@ func (s *SandboxDetail) GetFullInfo(ctx context.Context) (*SandboxInfo, error) {
 	return normalizeSandboxInfo(detail.SandboxDetail), nil
 }
 
-// GetMetrics reads runtime metrics for sandboxes that expose nano-executor access.
+// GetMetrics reads runtime metrics for sandboxes that expose managed runtime access.
 func (s *SandboxDetail) GetMetrics(ctx context.Context) (*cmd.MetricsResponse, error) {
 	runtime, err := s.Runtime()
 	if err != nil {

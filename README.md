@@ -4,7 +4,7 @@ Run code, agent workflows, and lightweight services in isolated cloud sandboxes 
 
 ## Why SeaCloudAI Sandbox
 
-- **Cloud sandboxes without infrastructure work**: create disposable isolated runtimes without managing Kubernetes, containers, runtime tokens, or service proxies yourself.
+- **Cloud sandboxes without infrastructure work**: create disposable isolated runtimes without managing containers, runtime tokens, or service proxies yourself.
 - **One object for the full workflow**: create a sandbox, write files, run commands, open a PTY, clone git repos, expose a web service, inspect logs, and clean up from the same SDK.
 - **Official templates for fast starts**: use `base` for files, commands, git, and PTY; use `code-interpreter` for multi-language code execution; use agent templates such as `claude` or `codex` when your environment publishes them.
 - **Reusable environments**: prototype in a running sandbox, then bake stable setup into a custom `tpl-...` template that can be pinned and reused in production.
@@ -356,7 +356,7 @@ log.Print(url)
 
 - `401` / `403`: verify `SEACLOUD_API_KEY` and that the process sees the environment variable.
 - Requests go to the wrong gateway: check `SEACLOUD_BASE_URL`; include the `https://` scheme.
-- Runtime APIs return `404`: use a template that starts nano-executor and returns `EnvdURL` / `EnvdAccessToken`.
+- Runtime APIs return `404`: use a template that supports managed runtime access and returns `EnvdURL` / `EnvdAccessToken`.
 - `waitReady` or builds time out: increase lifecycle `Timeout` and SDK HTTP timeout through `core.WithTimeout(...)` for long starts or image builds.
 - Frontend URL is unreachable: bind to `0.0.0.0`, confirm the port passed to `GetHost(...)`, and inspect whether the background process exited.
 - Build with local files fails: make sure `Copy(...)` points to an existing local path and use `ForceUpload: true` while iterating.
@@ -481,7 +481,7 @@ High-level template helpers currently include:
 - supported command and path options: `RunCmd(..., &sandbox.TemplateCommandOptions{User: ...})`, `GitClone(..., &sandbox.TemplateGitCloneOptions{User: ...})`, `MakeDir(..., &sandbox.TemplateMakeDirOptions{User: ...})`, `MakeSymlink(..., &sandbox.TemplateMakeSymlinkOptions{User: ...})`, `Remove(..., &sandbox.TemplateRemoveOptions{...User: ...})`, `Rename(..., &sandbox.TemplateRenameOptions{...User: ...})`
 - intentionally not exposed yet: MCP server helpers and devcontainer helpers
 
-### Raw Build Plane Through `build.NewService(...)`
+### Low-Level Build Plane Through `build.NewService(...)`
 
 ```go
 package main
@@ -657,7 +657,7 @@ Low-level control APIs live in `control.Service`:
 The SDK exposes two different metrics surfaces:
 
 - **Control-plane sandbox metrics** use Atlas through the gateway. Prefer these for dashboards and fleet monitoring because they can include Grafana/Kata enriched fields such as load average, CPU breakdown, memory pressure, disk I/O, network throughput, and task counts.
-- **Runtime metrics** call the sandbox nano-executor `/metrics` endpoint through `EnvdURL`. Use these when you are already connected to one runtime and only need the raw in-sandbox snapshot. The runtime payload includes CPU, memory, disk, and cumulative network byte counters; derived rates and enriched Grafana/Kata fields are available from the control-plane metrics surface.
+- **Runtime metrics** call the sandbox runtime `/metrics` endpoint through `EnvdURL`. Use these when you are already connected to one runtime and only need the direct in-sandbox snapshot. The runtime payload includes CPU, memory, disk, and cumulative network byte counters; derived rates and enriched fields are available from the control-plane metrics surface.
 
 Control-plane metrics:
 
@@ -698,7 +698,7 @@ Control-plane snapshot fields include:
 - memory: `MemTotal`, `MemUsed`, `MemTotalMiB`, `MemUsedMiB`, `MemCache`, `MemoryAvailableBytes`, `MemoryUsagePercent`, swap fields
 - disk: `DiskUsed`, `DiskTotal`, `DiskReadOpsPerSecond`, `DiskWriteOpsPerSecond`, `DiskReadBytesPerSecond`, `DiskWriteBytesPerSecond`
 - network: `NetRxBytes`, `NetTxBytes`, `NetworkRecvBytesPerSecond`, `NetworkSentBytesPerSecond`, packet/error/drop rates
-- tasks and raw runtime snapshot: `TaskCurrent`, `TaskMax`, `Raw`
+- tasks: `TaskCurrent`, `TaskMax`
 
 Runtime metrics:
 
@@ -749,7 +749,7 @@ Low-level `build.Service` exposes:
 - builds: `CreateBuild`, `GetBuildFile`, `RollbackTemplate`, `ListBuilds`, `GetBuild`, `GetBuildStatus`, `GetBuildLogs`
 - tags: `AssignTemplateTags`, `DeleteTemplateTags`, `ListTemplateTags`
 
-Build logs are served by the platform Loki backend. `GetBuildLogs` accepts the older `Source` field for compatibility, but the SDK ignores it and does not select between temporary or persistent log stores.
+Build logs are served by the platform log API. `GetBuildLogs` returns structured log entries without exposing the underlying log storage.
 
 The public template contract is split into three layers: E2B create fields (`Name`, `Tags`, `CPUCount`, `MemoryMB`), Atlas extension fields under `Extensions` (`BaseTemplateID`, `Visibility`, `Envs`, `VolumeMounts`, `Workdir`), E2B update field `Public`, and build-only fields on `CreateBuild` (`FromImage`, `FromTemplate`, `Steps`, `Tags`, `StartCmd`, `ReadyCmd`, registry credentials, `Steps[].FilesHash`).
 Template tags are version pointers to build artifacts. Build requests without explicit tags use `default`; `sandbox.AssignTemplateTags(ctx, "template:v1", []string{"stable"})` moves `stable` to the build behind `v1`, and sandboxes can reference `template:stable` or `template:buildID`.
@@ -759,7 +759,7 @@ Public create calls reject unsupported top-level write fields such as `Alias` an
 
 New custom templates default to `Type: "custom"`, `Version: "v0.1.0"`, `CPUCount: 1`, `MemoryMB: 512`, `TTLSeconds: 300`, and resource limit ratios of `1.0`. Server-generated template IDs use `tpl-{type}-{16 lowercase hex}` and server-generated initial build IDs use `build-{16 lowercase hex}`. Client-supplied build IDs passed to `CreateBuild(ctx, templateID, buildID, ...)` must be lowercase DNS labels up to 63 characters; the SDK recommends the `build-` prefix.
 
-`CreateTemplate`, `ListTemplates`, and `GetTemplate` responses include `Type` and `Version` when the backend returns them. Treat `Type` as the stable Atlas template family and `Version` as that family's version marker.
+`CreateTemplate`, `ListTemplates`, and `GetTemplate` responses include `Type` and `Version` when the platform returns them. Treat `Type` as the stable template family and `Version` as that family's version marker.
 
 For Go callers, the public write path and template read path now use different extension models on purpose:
 
@@ -772,7 +772,7 @@ This matches the current public builder API contract: request fields are intenti
 
 `CreateBuild` now follows the E2B wire contract directly: COPY contexts are passed through `Steps[].FilesHash`, and the SDK returns the raw `202 {}` trigger response without adding helper fields.
 
-`FromImage` switches the template to an already-built image and does not start a Dockerfile/Kubernetes build job by itself. `FromTemplate` resolves a ready template image and uses it as the build base for supported E2B steps. `FromDockerfile` is a client-side convenience that parses a supported Dockerfile subset into `FromImage`, `Steps`, `StartCmd`, and `ReadyCmd`; it is not the platform admin raw-Dockerfile build route. Raw Dockerfile builds that produce Harbor images are an admin/internal sandbox-builder API and are intentionally not exposed by this public SDK.
+`FromImage` switches the template to an already-built image and does not start a new image build by itself. `FromTemplate` resolves a ready template image and uses it as the build base for supported E2B steps. `FromDockerfile` is a client-side convenience that parses a supported Dockerfile subset into `FromImage`, `Steps`, `StartCmd`, and `ReadyCmd`; it is not the platform admin raw-Dockerfile build route.
 
 Build records can move through `uploaded`, `waiting`, `building`, `ready`, and `error`. `uploaded` means a referenced COPY context is still missing; upload it through the file handshake and call `CreateBuild` again with the same `buildID`.
 
@@ -819,7 +819,7 @@ Streaming APIs return `ProcessStream`, `FilesystemWatchStream`, and `ConnectFram
 - Runtime access should be derived from sandbox response objects with `Runtime()`, `sandbox.RuntimeFromSandbox(...)`, or `sandbox.RuntimeFromDetail(...)`.
 - `CreateSandbox` and `GetSandbox` responses include `EnvdURL` and `EnvdAccessToken` when the target sandbox supports CMD access.
 - High-level sandbox objects expose `TrafficAccessToken` from `EnvdAccessToken` for E2B-style public traffic token access.
-- Runtime file/process APIs require a template image that starts nano-executor and returns runtime access fields; if runtime APIs return `404`, verify the selected template supports CMD runtime routes.
+- Runtime file/process APIs require a template image that supports managed runtime access; if runtime APIs return `404`, verify the selected template supports CMD runtime routes.
 - `waitReady=true` can take longer than the default HTTP timeout in production; pass `core.WithTimeout(...)` when creating long-wait clients.
 - API errors expose `Kind` and `Retryable()` for retry logic and alert routing.
 - High-level `Kill()` helpers send `SIGNAL_SIGKILL` and return `false` when the runtime reports a missing process through either `404` or `ESRCH`.

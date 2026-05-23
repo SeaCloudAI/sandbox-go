@@ -171,7 +171,6 @@ type TemplateResponse struct {
 	NfsHostPath           string               `json:"nfsHostPath,omitempty"`
 	CPULimitRatio         *float64             `json:"cpuLimitRatio,omitempty"`
 	MemoryLimitRatio      *float64             `json:"memoryLimitRatio,omitempty"`
-	Namespace             string               `json:"namespace,omitempty"`
 	Location              string               `json:"location,omitempty"`
 	EnvdBaseDomain        string               `json:"envdBaseDomain,omitempty"`
 	RuntimeClassName      string               `json:"runtimeClassName,omitempty"`
@@ -286,8 +285,6 @@ type BuildLogsParams struct {
 	Limit     *int
 	Direction string
 	Level     string
-	// Deprecated: build logs are Loki-only; retained for old callers and ignored.
-	Source string
 }
 
 // BuildLogEntry is one structured build log line.
