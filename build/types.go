@@ -286,7 +286,8 @@ type BuildLogsParams struct {
 	Limit     *int
 	Direction string
 	Level     string
-	Source    string
+	// Deprecated: build logs are Loki-only; retained for old callers and ignored.
+	Source string
 }
 
 // BuildLogEntry is one structured build log line.

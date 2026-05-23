@@ -749,6 +749,8 @@ Low-level `build.Service` exposes:
 - builds: `CreateBuild`, `GetBuildFile`, `RollbackTemplate`, `ListBuilds`, `GetBuild`, `GetBuildStatus`, `GetBuildLogs`
 - tags: `AssignTemplateTags`, `DeleteTemplateTags`, `ListTemplateTags`
 
+Build logs are served by the platform Loki backend. `GetBuildLogs` accepts the older `Source` field for compatibility, but the SDK ignores it and does not select between temporary or persistent log stores.
+
 The public template contract is split into three layers: E2B create fields (`Name`, `Tags`, `CPUCount`, `MemoryMB`), Atlas extension fields under `Extensions` (`BaseTemplateID`, `Visibility`, `Envs`, `VolumeMounts`, `Workdir`), E2B update field `Public`, and build-only fields on `CreateBuild` (`FromImage`, `FromTemplate`, `Steps`, `Tags`, `StartCmd`, `ReadyCmd`, registry credentials, `Steps[].FilesHash`).
 Template tags are version pointers to build artifacts. Build requests without explicit tags use `default`; `sandbox.AssignTemplateTags(ctx, "template:v1", []string{"stable"})` moves `stable` to the build behind `v1`, and sandboxes can reference `template:stable` or `template:buildID`.
 Each mount declares its own storage through `VolumeMounts[i].StorageType` plus the matching storage fields such as `NfsHostPath`, `StorageClass`/`StorageSizeGB`, `PersistentVolumeClaim`, or `ObjectBucket`. `Workdir` sets the sandbox default working directory and file API root; it does not create a mount by itself.

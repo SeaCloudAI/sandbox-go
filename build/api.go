@@ -14,8 +14,6 @@ import (
 const (
 	buildDirectionForward  = "forward"
 	buildDirectionBackward = "backward"
-	buildSourceTemporary   = "temporary"
-	buildSourcePersistent  = "persistent"
 	maxBuildLogsLimit      = 100
 	maxBuildStatusLimit    = 100
 	maxTemplateListLimit   = 100
@@ -366,9 +364,6 @@ func (p *BuildLogsParams) encode() url.Values {
 	if level := strings.TrimSpace(p.Level); level != "" {
 		values.Set("level", level)
 	}
-	if source := strings.TrimSpace(p.Source); source != "" {
-		values.Set("source", source)
-	}
 	return values
 }
 
@@ -572,10 +567,6 @@ func validateBuildLogsParams(params *BuildLogsParams) error {
 	if direction := strings.TrimSpace(params.Direction); direction != "" &&
 		direction != buildDirectionForward && direction != buildDirectionBackward {
 		return fmt.Errorf("sandbox: build logs direction must be %q or %q", buildDirectionForward, buildDirectionBackward)
-	}
-	if source := strings.TrimSpace(params.Source); source != "" &&
-		source != buildSourceTemporary && source != buildSourcePersistent {
-		return fmt.Errorf("sandbox: build logs source must be %q or %q", buildSourceTemporary, buildSourcePersistent)
 	}
 	return nil
 }

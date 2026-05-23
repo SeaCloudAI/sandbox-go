@@ -711,7 +711,7 @@ func TestBuildBoundaryValuesAreAccepted(t *testing.T) {
 		t.Fatalf("GetBuildStatus boundary: %v", err)
 	}
 	cursor := int64(0)
-	if _, err := service.GetBuildLogs(context.Background(), "tpl-1", "build-1", &build.BuildLogsParams{Cursor: &cursor, Limit: &limit, Direction: "backward", Source: "temporary"}); err != nil {
+	if _, err := service.GetBuildLogs(context.Background(), "tpl-1", "build-1", &build.BuildLogsParams{Cursor: &cursor, Limit: &limit, Direction: "backward"}); err != nil {
 		t.Fatalf("GetBuildLogs boundary: %v", err)
 	}
 	if _, err := service.GetBuildFile(context.Background(), "tpl-1", strings.Repeat("a", 64)); err != nil {
@@ -851,7 +851,7 @@ func TestBuildListGetAndLogsEndpoints(t *testing.T) {
 			}`))
 		case r.URL.Path == "/api/v1/templates/tpl-1/builds/build-1/logs":
 			q := r.URL.Query()
-			if q.Get("cursor") != "0" || q.Get("limit") != "10" || q.Get("direction") != "forward" || q.Get("level") != "info" || q.Get("source") != "persistent" {
+			if q.Get("cursor") != "0" || q.Get("limit") != "10" || q.Get("direction") != "forward" || q.Get("level") != "info" || q.Get("source") != "" {
 				t.Fatalf("query = %#v", q)
 			}
 			_, _ = w.Write([]byte(`{
@@ -898,7 +898,6 @@ func TestBuildListGetAndLogsEndpoints(t *testing.T) {
 		Limit:     &limit,
 		Direction: "forward",
 		Level:     "info",
-		Source:    "persistent",
 	})
 	if err != nil {
 		t.Fatalf("GetBuildLogs: %v", err)
