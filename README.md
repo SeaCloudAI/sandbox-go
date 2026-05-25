@@ -658,8 +658,8 @@ Low-level control APIs live in `control.Service`:
 
 The SDK exposes two different metrics surfaces:
 
-- **Control-plane sandbox metrics** use Atlas through the gateway. Prefer these for dashboards and fleet monitoring because they can include Grafana/Kata enriched fields such as load average, CPU breakdown, memory pressure, disk I/O, network throughput, and task counts.
-- **Runtime metrics** call the sandbox runtime `/metrics` endpoint through `EnvdURL`. Use these when you are already connected to one runtime and only need the direct in-sandbox snapshot. The runtime payload includes CPU, memory, disk, and cumulative network byte counters; derived rates and enriched fields are available from the control-plane metrics surface.
+- **Control-plane sandbox metrics** use the platform runtime metrics service through the gateway. Prefer these for dashboards and fleet monitoring because they return user-facing load average, CPU breakdown, memory pressure, disk I/O, network throughput, and task-count fields.
+- **Runtime metrics** call the sandbox runtime `/metrics` endpoint through `EnvdURL`. Use these when you are already connected to one runtime and only need the direct in-sandbox snapshot. The runtime payload includes CPU, memory, disk, and cumulative network byte counters.
 
 Control-plane metrics:
 
@@ -678,7 +678,7 @@ single, err := service.GetSandboxMetrics(ctx, "sandbox-abc")
 if err != nil {
 	log.Fatal(err)
 }
-log.Printf("cpu=%.2f load1=%v memory=%v", single.CPUUsedPct, single.Load1, single.MemoryUsagePercent)
+log.Printf("load1=%v memory=%v", single.Load1, single.MemoryUsagePercent)
 log.Printf("network sent=%v disk write=%v", single.NetworkSentBytesPerSecond, single.DiskWriteBytesPerSecond)
 
 batch, err := service.ListSandboxMetrics(ctx, &control.SandboxMetricsParams{
@@ -696,10 +696,10 @@ for _, item := range batch.Items {
 Control-plane snapshot fields include:
 
 - identity and status: `SandboxID`, `CollectedAt`, `Error`
-- CPU: `CPUCount`, `CPUUsedPct`, `Load1`, `Load5`, `Load15`, `CPUUserRate`, `CPUSystemRate`, `CPUIOWaitRate`, `CPUStealRate`
-- memory: `MemTotal`, `MemUsed`, `MemTotalMiB`, `MemUsedMiB`, `MemCache`, `MemoryAvailableBytes`, `MemoryUsagePercent`, swap fields
-- disk: `DiskUsed`, `DiskTotal`, `DiskReadOpsPerSecond`, `DiskWriteOpsPerSecond`, `DiskReadBytesPerSecond`, `DiskWriteBytesPerSecond`
-- network: `NetRxBytes`, `NetTxBytes`, `NetworkRecvBytesPerSecond`, `NetworkSentBytesPerSecond`, packet/error/drop rates
+- CPU: `Load1`, `Load5`, `Load15`, `CPUUserRate`, `CPUSystemRate`, `CPUIOWaitRate`, `CPUStealRate`
+- memory: `MemoryAvailableBytes`, `MemoryUsagePercent`, `SwapTotalBytes`, `SwapFreeBytes`, `SwapCachedBytes`
+- disk: `DiskReadOpsPerSecond`, `DiskWriteOpsPerSecond`, `DiskReadBytesPerSecond`, `DiskWriteBytesPerSecond`
+- network: `NetworkRecvBytesPerSecond`, `NetworkSentBytesPerSecond`, packet/error/drop rates
 - tasks: `TaskCurrent`, `TaskMax`
 
 Runtime metrics:
