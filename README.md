@@ -751,6 +751,20 @@ Low-level `build.Service` exposes:
 
 Build logs are served by the platform log API. `GetBuildLogs` returns structured log entries without exposing the underlying log storage.
 
+### Observability Summary
+
+Use `sandbox.GetObservabilitySummary(ctx)` to get one user/Project-level view of sandbox usage, template/build usage, and the public diagnostic endpoints:
+
+```go
+summary, err := sandbox.GetObservabilitySummary(ctx)
+if err != nil {
+	log.Fatal(err)
+}
+log.Printf("status=%s usage=%+v", summary.Status, summary.Usage)
+```
+
+The summary intentionally returns public product fields only. Use the endpoint hints from `summary.Endpoints` for sandbox logs, build logs, and full usage-limit checks.
+
 The public template contract is split into three layers: E2B create fields (`Name`, `Tags`, `CPUCount`, `MemoryMB`), Atlas extension fields under `Extensions` (`BaseTemplateID`, `Visibility`, `Envs`, `VolumeMounts`, `Workdir`), E2B update field `Public`, and build-only fields on `CreateBuild` (`FromImage`, `FromTemplate`, `Steps`, `Tags`, `StartCmd`, `ReadyCmd`, registry credentials, `Steps[].FilesHash`).
 Template tags are version pointers to build artifacts. Build requests without explicit tags use `default`; `sandbox.AssignTemplateTags(ctx, "template:v1", []string{"stable"})` moves `stable` to the build behind `v1`, and sandboxes can reference `template:stable` or `template:buildID`.
 Each mount declares its own storage through `VolumeMounts[i].StorageType` plus the matching storage fields such as `NfsHostPath`, `StorageClass`/`StorageSizeGB`, `PersistentVolumeClaim`, or `ObjectBucket`. `Workdir` sets the sandbox default working directory and file API root; it does not create a mount by itself.

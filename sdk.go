@@ -305,6 +305,14 @@ func ListSandboxMetrics(ctx context.Context, opts *control.SandboxMetricsParams,
 	return gateway.listSandboxMetrics(ctx, opts)
 }
 
+func GetObservabilitySummary(ctx context.Context, transportOpts ...core.TransportOption) (*control.ObservabilitySummary, error) {
+	gateway, err := newGatewayServicesFromEnv(transportOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return gateway.getObservabilitySummary(ctx)
+}
+
 func GetInfo(ctx context.Context, sandboxID string, transportOpts ...core.TransportOption) (*SandboxInfo, error) {
 	gateway, err := newGatewayServicesFromEnv(transportOpts...)
 	if err != nil {

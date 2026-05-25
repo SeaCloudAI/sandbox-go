@@ -372,6 +372,58 @@ func TestSandboxMetricsEndpoints(t *testing.T) {
 	}
 }
 
+func TestObservabilitySummaryEndpoint(t *testing.T) {
+	var gotProjectID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/v1/observability/summary" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotProjectID = r.Header.Get("X-Project-ID")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"status":"ok",
+			"projectID":"project-1",
+			"userID":"user-1",
+			"usage":{
+				"sandboxes":{"resource":"sandboxes","user":{"limits":{"held":{"limit":20,"used":1,"remaining":19,"enforced":true}}}},
+				"templates":{"resource":"templates","user":{"limits":{"concurrentBuilds":{"limit":3,"used":0,"remaining":3,"enforced":true}}}}
+			},
+			"availability":{"sandboxes":{"status":"available"},"templates":{"status":"available"}},
+			"endpoints":{
+				"sandboxUsage":"/api/v1/usage/limits",
+				"templateUsage":"/api/v1/usage/template-limits",
+				"sandboxLogs":"/api/v1/sandboxes/{sandboxID}/logs",
+				"buildLogs":"/api/v1/templates/{templateID}/builds/{buildID}/logs"
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	service, err := control.NewService(server.URL, "unit-auth-value", core.WithProjectID("project-1"))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	summary, err := service.GetObservabilitySummary(context.Background())
+	if err != nil {
+		t.Fatalf("GetObservabilitySummary: %v", err)
+	}
+	if gotProjectID != "project-1" {
+		t.Fatalf("project header = %q", gotProjectID)
+	}
+	if summary.Status != "ok" || summary.ProjectID != "project-1" {
+		t.Fatalf("summary = %#v", summary)
+	}
+	if summary.Usage == nil || summary.Usage.Templates == nil || summary.Usage.Templates.User == nil {
+		t.Fatalf("missing template usage: %#v", summary.Usage)
+	}
+	if remaining := summary.Usage.Templates.User.Limits["concurrentBuilds"].Remaining; remaining != 3 {
+		t.Fatalf("remaining concurrent builds = %d", remaining)
+	}
+}
+
 func TestRootListSandboxesReturnsBoundHandles(t *testing.T) {
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

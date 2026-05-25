@@ -115,6 +115,14 @@ func (c *Service) ListSandboxMetrics(ctx context.Context, params *SandboxMetrics
 	return &resp, nil
 }
 
+func (c *Service) GetObservabilitySummary(ctx context.Context) (*ObservabilitySummary, error) {
+	var resp ObservabilitySummary
+	if _, err := c.DoJSON(ctx, http.MethodGet, "/api/v1/observability/summary", nil, nil, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (c *Service) DeleteSandbox(ctx context.Context, sandboxID string) error {
 	if strings.TrimSpace(sandboxID) == "" {
 		return ErrSandboxIDEmpty

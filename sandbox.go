@@ -81,6 +81,10 @@ func (g *gatewayServices) listSandboxMetrics(ctx context.Context, params *contro
 	return g.control.ListSandboxMetrics(ctx, params)
 }
 
+func (g *gatewayServices) getObservabilitySummary(ctx context.Context) (*control.ObservabilitySummary, error) {
+	return g.control.GetObservabilitySummary(ctx)
+}
+
 func (g *gatewayServices) listSandboxes(
 	ctx context.Context,
 	params *control.ListSandboxesParams,

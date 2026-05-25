@@ -150,6 +150,72 @@ type SandboxMetricsResponse struct {
 	Sandboxes   map[string]SandboxMetricSnapshot `json:"sandboxes"`
 }
 
+type UsageLimitValue struct {
+	Limit     int     `json:"limit"`
+	Used      int     `json:"used"`
+	Remaining int     `json:"remaining"`
+	ResetAt   *string `json:"resetAt,omitempty"`
+	Enforced  bool    `json:"enforced"`
+}
+
+type UsageLimitScope struct {
+	ID     string                     `json:"id,omitempty"`
+	Usage  map[string]int             `json:"usage,omitempty"`
+	Limits map[string]UsageLimitValue `json:"limits,omitempty"`
+}
+
+type RuntimeLimitInfo struct {
+	MaxRuntimeSeconds int32 `json:"maxRuntimeSeconds,omitempty"`
+}
+
+type SandboxUsageLimits struct {
+	Resource  string            `json:"resource"`
+	Unlimited bool              `json:"unlimited,omitempty"`
+	User      *UsageLimitScope  `json:"user,omitempty"`
+	Project   *UsageLimitScope  `json:"project,omitempty"`
+	Runtime   *RuntimeLimitInfo `json:"runtime,omitempty"`
+}
+
+type TemplateResourceLimitInfo struct {
+	MaxTemplateCPU       int32 `json:"maxTemplateCPU,omitempty"`
+	MaxTemplateMemoryMB  int32 `json:"maxTemplateMemoryMB,omitempty"`
+	MaxTemplateStorageGB int32 `json:"maxTemplateStorageGB,omitempty"`
+}
+
+type TemplateUsageLimits struct {
+	Resource  string                     `json:"resource"`
+	Unlimited bool                       `json:"unlimited,omitempty"`
+	User      *UsageLimitScope           `json:"user,omitempty"`
+	Project   *UsageLimitScope           `json:"project,omitempty"`
+	Resources *TemplateResourceLimitInfo `json:"resources,omitempty"`
+}
+
+type ObservabilitySignal struct {
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+}
+
+type ObservabilityEndpointHints struct {
+	SandboxUsage  string `json:"sandboxUsage"`
+	TemplateUsage string `json:"templateUsage"`
+	SandboxLogs   string `json:"sandboxLogs"`
+	BuildLogs     string `json:"buildLogs"`
+}
+
+type ObservabilityUsage struct {
+	Sandboxes *SandboxUsageLimits  `json:"sandboxes,omitempty"`
+	Templates *TemplateUsageLimits `json:"templates,omitempty"`
+}
+
+type ObservabilitySummary struct {
+	Status       string                         `json:"status"`
+	ProjectID    string                         `json:"projectID,omitempty"`
+	UserID       string                         `json:"userID,omitempty"`
+	Usage        *ObservabilityUsage            `json:"usage,omitempty"`
+	Availability map[string]ObservabilitySignal `json:"availability"`
+	Endpoints    ObservabilityEndpointHints     `json:"endpoints"`
+}
+
 // SandboxLogsParams configures GET /api/v1/sandboxes/:sandboxID/logs.
 type SandboxLogsParams struct {
 	Cursor    *int64
