@@ -201,7 +201,22 @@ func TestGatewayDiagnosticsIncludeAPIErrorDetails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte(`{"code":429,"message":"quota exceeded","request_id":"server-req"}`))
+		_, _ = w.Write([]byte(`{
+			"code":429,
+			"message":"quota exceeded",
+			"requestID":"server-req",
+			"details":{
+				"reason":"usage_limit",
+				"scope":"project",
+				"resource":"sandboxes",
+				"metric":"dailyCreates",
+				"used":101,
+				"limit":100,
+				"remaining":0,
+				"usageEndpoint":"/api/v1/usage/limits",
+				"retryable":true
+			}
+		}`))
 	}))
 	defer server.Close()
 
@@ -215,6 +230,19 @@ func TestGatewayDiagnosticsIncludeAPIErrorDetails(t *testing.T) {
 	_, err = service.ListSandboxes(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected API error")
+	}
+	apiErr, ok := err.(*core.APIError)
+	if !ok {
+		t.Fatalf("error type = %T", err)
+	}
+	if apiErr.RequestID != "server-req" {
+		t.Fatalf("requestID = %q", apiErr.RequestID)
+	}
+	if apiErr.UsageLimit == nil || apiErr.UsageLimit.Scope != "project" || apiErr.UsageLimit.Metric != "dailyCreates" {
+		t.Fatalf("usage limit detail = %#v", apiErr.UsageLimit)
+	}
+	if len(apiErr.Details) == 0 {
+		t.Fatal("expected raw details to be preserved")
 	}
 	last := events[len(events)-1]
 	if last.Type != "error" || last.StatusCode != http.StatusTooManyRequests {

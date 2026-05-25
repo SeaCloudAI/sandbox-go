@@ -35,6 +35,20 @@ type ErrorDetail struct {
 	Details string `json:"details,omitempty"`
 }
 
+// UsageLimitDiagnostic is the public details payload returned with quota 429s.
+type UsageLimitDiagnostic struct {
+	Reason        string  `json:"reason"`
+	Scope         string  `json:"scope,omitempty"`
+	Resource      string  `json:"resource,omitempty"`
+	Metric        string  `json:"metric,omitempty"`
+	Used          int     `json:"used,omitempty"`
+	Limit         int     `json:"limit,omitempty"`
+	Remaining     int     `json:"remaining"`
+	ResetAt       *string `json:"resetAt,omitempty"`
+	Retryable     bool    `json:"retryable"`
+	UsageEndpoint string  `json:"usageEndpoint,omitempty"`
+}
+
 // APIError represents a non-2xx API response.
 type APIError struct {
 	StatusCode int
@@ -42,6 +56,8 @@ type APIError struct {
 	Message    string
 	RequestID  string
 	Err        *ErrorDetail
+	Details    json.RawMessage
+	UsageLimit *UsageLimitDiagnostic
 	Body       []byte
 	Kind       APIErrorKind
 }
@@ -67,10 +83,12 @@ func (e *APIError) Retryable() bool {
 }
 
 type rawAPIError struct {
-	Code      int             `json:"code"`
-	Message   string          `json:"message"`
-	Err       json.RawMessage `json:"error,omitempty"`
-	RequestID string          `json:"request_id,omitempty"`
+	Code           int             `json:"code"`
+	Message        string          `json:"message"`
+	Err            json.RawMessage `json:"error,omitempty"`
+	Details        json.RawMessage `json:"details,omitempty"`
+	RequestID      string          `json:"request_id,omitempty"`
+	RequestIDCamel string          `json:"requestID,omitempty"`
 }
 
 // DecodeAPIError converts a non-success response into APIError.
@@ -91,8 +109,10 @@ func DecodeAPIError(resp *http.Response) error {
 		if parsed.Message != "" {
 			apiErr.Message = parsed.Message
 		}
-		apiErr.RequestID = parsed.RequestID
+		apiErr.RequestID = firstNonEmpty(parsed.RequestIDCamel, parsed.RequestID)
 		apiErr.Err = decodeErrorDetail(parsed.Err)
+		apiErr.Details = cloneRawMessage(parsed.Details)
+		apiErr.UsageLimit = decodeUsageLimitDiagnostic(parsed.Details)
 	}
 	return apiErr
 }
@@ -111,6 +131,24 @@ func decodeErrorDetail(raw json.RawMessage) *ErrorDetail {
 		return &ErrorDetail{Details: message}
 	}
 	return nil
+}
+
+func decodeUsageLimitDiagnostic(raw json.RawMessage) *UsageLimitDiagnostic {
+	if len(raw) == 0 {
+		return nil
+	}
+	var diagnostic UsageLimitDiagnostic
+	if json.Unmarshal(raw, &diagnostic) != nil || diagnostic.Reason != "usage_limit" {
+		return nil
+	}
+	return &diagnostic
+}
+
+func cloneRawMessage(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	return append(json.RawMessage(nil), raw...)
 }
 
 func classifyAPIError(statusCode int) APIErrorKind {

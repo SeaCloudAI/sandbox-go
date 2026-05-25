@@ -381,6 +381,8 @@ _, _ = service.ListSandboxes(context.Background(), nil)
 
 Diagnostic events include method, path, request ID, status, duration, error kind, and retryability. They intentionally exclude request/response bodies and credential headers; sensitive query values such as tokens, signatures, and `api_key` are redacted, including when a transport error embeds a URL. Logger failures are ignored so diagnostics cannot change request behavior.
 
+Quota `429` responses decode into `*core.APIError` with `UsageLimit` populated when the gateway returns public limit diagnostics. Use `UsageLimit.Scope`, `UsageLimit.Resource`, `UsageLimit.Metric`, and `UsageLimit.UsageEndpoint` to guide retry or cleanup flows.
+
 ## Production Readiness
 
 - Package-level helpers are fine for simple env-first flows. For repeated low-level workflows, initialize one `control.Service` and/or `build.Service` and reuse them.
