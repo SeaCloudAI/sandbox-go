@@ -195,6 +195,18 @@ type ObservabilitySignal struct {
 	Message string `json:"message,omitempty"`
 }
 
+type ObservabilityCheck struct {
+	Status        string `json:"status"`
+	Scope         string `json:"scope"`
+	Resource      string `json:"resource"`
+	Metric        string `json:"metric"`
+	Used          int    `json:"used"`
+	Limit         int    `json:"limit"`
+	Remaining     int    `json:"remaining"`
+	Message       string `json:"message"`
+	UsageEndpoint string `json:"usageEndpoint"`
+}
+
 type ObservabilityEndpointHints struct {
 	SandboxUsage  string `json:"sandboxUsage"`
 	TemplateUsage string `json:"templateUsage"`
@@ -213,6 +225,7 @@ type ObservabilitySummary struct {
 	UserID       string                         `json:"userID,omitempty"`
 	Usage        *ObservabilityUsage            `json:"usage,omitempty"`
 	Availability map[string]ObservabilitySignal `json:"availability"`
+	Checks       []ObservabilityCheck           `json:"checks"`
 	Endpoints    ObservabilityEndpointHints     `json:"endpoints"`
 }
 

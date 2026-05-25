@@ -420,6 +420,17 @@ func TestObservabilitySummaryEndpoint(t *testing.T) {
 				"templates":{"resource":"templates","user":{"limits":{"concurrentBuilds":{"limit":3,"used":0,"remaining":3,"enforced":true}}}}
 			},
 			"availability":{"sandboxes":{"status":"available"},"templates":{"status":"available"}},
+			"checks":[{
+				"status":"exhausted",
+				"scope":"user",
+				"resource":"templates",
+				"metric":"concurrentBuilds",
+				"used":3,
+				"limit":3,
+				"remaining":0,
+				"message":"User concurrent build quota is exhausted.",
+				"usageEndpoint":"/api/v1/usage/template-limits"
+			}],
 			"endpoints":{
 				"sandboxUsage":"/api/v1/usage/limits",
 				"templateUsage":"/api/v1/usage/template-limits",
@@ -449,6 +460,9 @@ func TestObservabilitySummaryEndpoint(t *testing.T) {
 	}
 	if remaining := summary.Usage.Templates.User.Limits["concurrentBuilds"].Remaining; remaining != 3 {
 		t.Fatalf("remaining concurrent builds = %d", remaining)
+	}
+	if len(summary.Checks) != 1 || summary.Checks[0].Metric != "concurrentBuilds" {
+		t.Fatalf("checks = %#v", summary.Checks)
 	}
 }
 
