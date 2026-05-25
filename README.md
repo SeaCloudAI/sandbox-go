@@ -751,7 +751,7 @@ Low-level `build.Service` exposes:
 - builds: `CreateBuild`, `GetBuildFile`, `RollbackTemplate`, `ListBuilds`, `GetBuild`, `GetBuildStatus`, `GetBuildLogs`
 - tags: `AssignTemplateTags`, `DeleteTemplateTags`, `ListTemplateTags`
 
-Build logs are served by the platform log API. `GetBuildLogs` returns structured log entries without exposing the underlying log storage.
+Build logs are served by the platform log API. `GetBuildLogs` returns structured log entries, pagination metadata, and an optional empty-result diagnostic without exposing the underlying log storage.
 
 ### Observability Summary
 
@@ -765,7 +765,7 @@ if err != nil {
 log.Printf("status=%s usage=%+v", summary.Status, summary.Usage)
 ```
 
-The summary intentionally returns public product fields only. Use the endpoint hints from `summary.Endpoints` for sandbox logs, build logs, and full usage-limit checks.
+The summary intentionally returns public product fields only. Use the endpoint hints from `summary.Endpoints` for sandbox logs, build logs, and full usage-limit checks. Empty sandbox or build log responses may include a public diagnostic explaining whether filters, cursor position, or lack of output caused the empty result.
 
 The public template contract is split into three layers: E2B create fields (`Name`, `Tags`, `CPUCount`, `MemoryMB`), Atlas extension fields under `Extensions` (`BaseTemplateID`, `Visibility`, `Envs`, `VolumeMounts`, `Workdir`), E2B update field `Public`, and build-only fields on `CreateBuild` (`FromImage`, `FromTemplate`, `Steps`, `Tags`, `StartCmd`, `ReadyCmd`, registry credentials, `Steps[].FilesHash`).
 Template tags are version pointers to build artifacts. Build requests without explicit tags use `default`; `sandbox.AssignTemplateTags(ctx, "template:v1", []string{"stable"})` moves `stable` to the build behind `v1`, and sandboxes can reference `template:stable` or `template:buildID`.

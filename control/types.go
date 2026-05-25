@@ -246,9 +246,28 @@ type SandboxLogEntry struct {
 	Fields    map[string]string `json:"fields"`
 }
 
+// LogDiagnostic explains an empty log response using public product terms.
+type LogDiagnostic struct {
+	Reason  string `json:"reason"`
+	Message string `json:"message"`
+}
+
+// SandboxLogsQuery echoes the normalized query used for a sandbox logs request.
+type SandboxLogsQuery struct {
+	SandboxID string `json:"sandboxID,omitempty"`
+	Direction string `json:"direction,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Level     string `json:"level,omitempty"`
+	Search    string `json:"search,omitempty"`
+}
+
 // SandboxLogsResponse wraps sandbox log records.
 type SandboxLogsResponse struct {
-	Logs []SandboxLogEntry `json:"logs"`
+	Logs       []SandboxLogEntry `json:"logs"`
+	NextCursor *int64            `json:"nextCursor,omitempty"`
+	HasMore    bool              `json:"hasMore"`
+	Query      *SandboxLogsQuery `json:"query,omitempty"`
+	Diagnostic *LogDiagnostic    `json:"diagnostic,omitempty"`
 }
 
 // ConnectSandboxRequest is the request body for POST /connect.

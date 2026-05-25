@@ -773,7 +773,12 @@ func TestSandboxLifecyclePaths(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(`{"sandboxID":"sb-1"}`))
 		case strings.HasSuffix(r.URL.Path, "/logs"):
-			_, _ = w.Write([]byte(`{"logs":[]}`))
+			_, _ = w.Write([]byte(`{
+				"logs":[],
+				"hasMore":false,
+				"query":{"sandboxID":"sb-1","direction":"forward","limit":10,"level":"info","search":"health"},
+				"diagnostic":{"reason":"filters_applied","message":"No sandbox logs matched the current filters. Try removing search or level filters."}
+			}`))
 		case strings.HasSuffix(r.URL.Path, "/pause"),
 			strings.HasSuffix(r.URL.Path, "/timeout"),
 			strings.HasSuffix(r.URL.Path, "/refreshes"):
@@ -798,14 +803,18 @@ func TestSandboxLifecyclePaths(t *testing.T) {
 	}
 	zero := int64(0)
 	ten := 10
-	if _, err := service.GetSandboxLogs(context.Background(), "sb-1", &control.SandboxLogsParams{
+	logs, err := service.GetSandboxLogs(context.Background(), "sb-1", &control.SandboxLogsParams{
 		Cursor:    &zero,
 		Limit:     &ten,
 		Direction: "forward",
 		Level:     "info",
 		Search:    "health",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("GetSandboxLogs: %v", err)
+	}
+	if logs.Diagnostic == nil || logs.Diagnostic.Reason != "filters_applied" || logs.Query == nil || logs.Query.Search != "health" {
+		t.Fatalf("logs response = %#v", logs)
 	}
 	if err := service.PauseSandbox(context.Background(), "sb-1"); err != nil {
 		t.Fatalf("PauseSandbox: %v", err)

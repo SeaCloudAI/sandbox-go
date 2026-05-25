@@ -295,9 +295,28 @@ type BuildLogEntry struct {
 	Message   string    `json:"message"`
 }
 
+// LogDiagnostic explains an empty log response using public product terms.
+type LogDiagnostic struct {
+	Reason  string `json:"reason"`
+	Message string `json:"message"`
+}
+
+// BuildLogsQuery echoes the normalized query used for a build logs request.
+type BuildLogsQuery struct {
+	TemplateID string `json:"templateID,omitempty"`
+	BuildID    string `json:"buildID,omitempty"`
+	Direction  string `json:"direction,omitempty"`
+	Limit      int    `json:"limit,omitempty"`
+	Level      string `json:"level,omitempty"`
+}
+
 // BuildLogsResponse wraps structured build logs.
 type BuildLogsResponse struct {
-	Logs []BuildLogEntry `json:"logs"`
+	Logs       []BuildLogEntry `json:"logs"`
+	NextCursor *int64          `json:"nextCursor,omitempty"`
+	HasMore    bool            `json:"hasMore"`
+	Query      *BuildLogsQuery `json:"query,omitempty"`
+	Diagnostic *LogDiagnostic  `json:"diagnostic,omitempty"`
 }
 
 type AssignTemplateTagsRequest struct {

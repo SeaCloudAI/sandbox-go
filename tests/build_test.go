@@ -862,7 +862,10 @@ func TestBuildListGetAndLogsEndpoints(t *testing.T) {
 						"step":"build",
 						"message":"building image"
 					}
-				]
+				],
+				"nextCursor":1767225600000,
+				"hasMore":false,
+				"query":{"templateID":"tpl-1","buildID":"build-1","direction":"forward","limit":10,"level":"info"}
 			}`))
 		default:
 			http.NotFound(w, r)
@@ -904,6 +907,9 @@ func TestBuildListGetAndLogsEndpoints(t *testing.T) {
 	}
 	if len(logs.Logs) != 1 || logs.Logs[0].Message != "building image" {
 		t.Fatalf("logs = %#v", logs)
+	}
+	if logs.NextCursor == nil || *logs.NextCursor != 1767225600000 || logs.Query == nil || logs.Query.Level != "info" {
+		t.Fatalf("logs metadata = %#v", logs)
 	}
 }
 
