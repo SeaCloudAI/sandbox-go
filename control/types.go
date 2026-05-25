@@ -27,58 +27,79 @@ type SandboxLifecycle struct {
 	OnTimeout string `json:"onTimeout"`
 }
 
+// SandboxTimelineEvent is a public lifecycle event for user-facing diagnostics.
+type SandboxTimelineEvent struct {
+	Phase     string    `json:"phase"`
+	Status    string    `json:"status"`
+	Timestamp time.Time `json:"timestamp"`
+	Message   string    `json:"message,omitempty"`
+}
+
+// SandboxDiagnostic explains current sandbox state using public product terms.
+type SandboxDiagnostic struct {
+	Reason         string `json:"reason"`
+	Message        string `json:"message"`
+	Recommendation string `json:"recommendation,omitempty"`
+}
+
 // Sandbox is returned by create and connect endpoints.
 type Sandbox struct {
-	TemplateID      string     `json:"templateID"`
-	SandboxID       string     `json:"sandboxID"`
-	Alias           string     `json:"alias,omitempty"`
-	ClientID        string     `json:"clientID"`
-	EnvdAccessToken *string    `json:"envdAccessToken"`
-	EnvdURL         *string    `json:"envdUrl"`
-	Status          string     `json:"status"`
-	State           string     `json:"state,omitempty"`
-	StartedAt       time.Time  `json:"startedAt"`
-	ActivatedAt     *time.Time `json:"activatedAt,omitempty"`
-	EndAt           time.Time  `json:"endAt"`
+	TemplateID      string                 `json:"templateID"`
+	SandboxID       string                 `json:"sandboxID"`
+	Alias           string                 `json:"alias,omitempty"`
+	ClientID        string                 `json:"clientID"`
+	EnvdAccessToken *string                `json:"envdAccessToken"`
+	EnvdURL         *string                `json:"envdUrl"`
+	Status          string                 `json:"status"`
+	State           string                 `json:"state,omitempty"`
+	StartedAt       time.Time              `json:"startedAt"`
+	ActivatedAt     *time.Time             `json:"activatedAt,omitempty"`
+	EndAt           time.Time              `json:"endAt"`
+	Timeline        []SandboxTimelineEvent `json:"timeline,omitempty"`
+	Diagnostic      *SandboxDiagnostic     `json:"diagnostic,omitempty"`
 }
 
 // SandboxDetail is returned by GET /api/v1/sandboxes/:sandboxID.
 type SandboxDetail struct {
-	TemplateID      string            `json:"templateID"`
-	Alias           string            `json:"alias,omitempty"`
-	SandboxID       string            `json:"sandboxID"`
-	ClientID        string            `json:"clientID"`
-	StartedAt       time.Time         `json:"startedAt"`
-	EndAt           time.Time         `json:"endAt"`
-	EnvdAccessToken *string           `json:"envdAccessToken"`
-	EnvdURL         *string           `json:"envdUrl"`
-	CPUCount        int32             `json:"cpuCount"`
-	MemoryMB        int32             `json:"memoryMB"`
-	DiskSizeMB      int32             `json:"diskSizeMB"`
-	Metadata        map[string]string `json:"metadata,omitempty"`
-	Status          string            `json:"status"`
-	State           string            `json:"state,omitempty"`
-	Lifecycle       SandboxLifecycle  `json:"lifecycle"`
-	VolumeMounts    []VolumeMount     `json:"volumeMounts,omitempty"`
-	ActivatedAt     *time.Time        `json:"activatedAt,omitempty"`
+	TemplateID      string                 `json:"templateID"`
+	Alias           string                 `json:"alias,omitempty"`
+	SandboxID       string                 `json:"sandboxID"`
+	ClientID        string                 `json:"clientID"`
+	StartedAt       time.Time              `json:"startedAt"`
+	EndAt           time.Time              `json:"endAt"`
+	EnvdAccessToken *string                `json:"envdAccessToken"`
+	EnvdURL         *string                `json:"envdUrl"`
+	CPUCount        int32                  `json:"cpuCount"`
+	MemoryMB        int32                  `json:"memoryMB"`
+	DiskSizeMB      int32                  `json:"diskSizeMB"`
+	Metadata        map[string]string      `json:"metadata,omitempty"`
+	Status          string                 `json:"status"`
+	State           string                 `json:"state,omitempty"`
+	Lifecycle       SandboxLifecycle       `json:"lifecycle"`
+	VolumeMounts    []VolumeMount          `json:"volumeMounts,omitempty"`
+	ActivatedAt     *time.Time             `json:"activatedAt,omitempty"`
+	Timeline        []SandboxTimelineEvent `json:"timeline,omitempty"`
+	Diagnostic      *SandboxDiagnostic     `json:"diagnostic,omitempty"`
 }
 
 // ListedSandbox is returned by the list endpoint.
 type ListedSandbox struct {
-	TemplateID   string            `json:"templateID"`
-	Alias        string            `json:"alias,omitempty"`
-	SandboxID    string            `json:"sandboxID"`
-	ClientID     string            `json:"clientID"`
-	StartedAt    time.Time         `json:"startedAt"`
-	EndAt        time.Time         `json:"endAt"`
-	CPUCount     int32             `json:"cpuCount"`
-	MemoryMB     int32             `json:"memoryMB"`
-	DiskSizeMB   int32             `json:"diskSizeMB"`
-	Metadata     map[string]string `json:"metadata,omitempty"`
-	Status       string            `json:"status"`
-	State        string            `json:"state,omitempty"`
-	VolumeMounts []VolumeMount     `json:"volumeMounts,omitempty"`
-	ActivatedAt  *time.Time        `json:"activatedAt,omitempty"`
+	TemplateID   string                 `json:"templateID"`
+	Alias        string                 `json:"alias,omitempty"`
+	SandboxID    string                 `json:"sandboxID"`
+	ClientID     string                 `json:"clientID"`
+	StartedAt    time.Time              `json:"startedAt"`
+	EndAt        time.Time              `json:"endAt"`
+	CPUCount     int32                  `json:"cpuCount"`
+	MemoryMB     int32                  `json:"memoryMB"`
+	DiskSizeMB   int32                  `json:"diskSizeMB"`
+	Metadata     map[string]string      `json:"metadata,omitempty"`
+	Status       string                 `json:"status"`
+	State        string                 `json:"state,omitempty"`
+	VolumeMounts []VolumeMount          `json:"volumeMounts,omitempty"`
+	ActivatedAt  *time.Time             `json:"activatedAt,omitempty"`
+	Timeline     []SandboxTimelineEvent `json:"timeline,omitempty"`
+	Diagnostic   *SandboxDiagnostic     `json:"diagnostic,omitempty"`
 }
 
 // ListSandboxesParams configures GET /api/v1/sandboxes.
@@ -207,11 +228,22 @@ type ObservabilityCheck struct {
 	UsageEndpoint string `json:"usageEndpoint"`
 }
 
+type ObservabilityAction struct {
+	Status   string `json:"status"`
+	Scope    string `json:"scope,omitempty"`
+	Resource string `json:"resource,omitempty"`
+	Message  string `json:"message"`
+	Endpoint string `json:"endpoint,omitempty"`
+}
+
 type ObservabilityEndpointHints struct {
-	SandboxUsage  string `json:"sandboxUsage"`
-	TemplateUsage string `json:"templateUsage"`
-	SandboxLogs   string `json:"sandboxLogs"`
-	BuildLogs     string `json:"buildLogs"`
+	SandboxUsage   string `json:"sandboxUsage"`
+	TemplateUsage  string `json:"templateUsage"`
+	SandboxDetail  string `json:"sandboxDetail,omitempty"`
+	SandboxMetrics string `json:"sandboxMetrics,omitempty"`
+	SandboxLogs    string `json:"sandboxLogs"`
+	BuildStatus    string `json:"buildStatus,omitempty"`
+	BuildLogs      string `json:"buildLogs"`
 }
 
 type ObservabilityUsage struct {
@@ -226,6 +258,7 @@ type ObservabilitySummary struct {
 	Usage        *ObservabilityUsage            `json:"usage,omitempty"`
 	Availability map[string]ObservabilitySignal `json:"availability"`
 	Checks       []ObservabilityCheck           `json:"checks"`
+	Actions      []ObservabilityAction          `json:"actions"`
 	Endpoints    ObservabilityEndpointHints     `json:"endpoints"`
 }
 

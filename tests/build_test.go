@@ -794,6 +794,9 @@ func TestGetBuildStatusAllowsAnonymousPolling(t *testing.T) {
 					"message":"building image"
 				}
 			],
+			"steps":[
+				{"step":"build","status":"in_progress","logCount":1,"lastMessage":"building image"}
+			],
 			"reason":null,
 			"createdAt":"2026-01-01T00:00:00Z",
 			"updatedAt":"2026-01-01T00:00:01Z"
@@ -815,6 +818,9 @@ func TestGetBuildStatusAllowsAnonymousPolling(t *testing.T) {
 	}
 	if len(resp.LogEntries) != 1 || resp.LogEntries[0].Message != "building image" || len(resp.Logs) != 1 {
 		t.Fatalf("response = %#v", resp)
+	}
+	if len(resp.Steps) != 1 || resp.Steps[0].Status != "in_progress" {
+		t.Fatalf("steps = %#v", resp.Steps)
 	}
 }
 
@@ -847,7 +853,11 @@ func TestBuildListGetAndLogsEndpoints(t *testing.T) {
 				"errorMessage":"",
 				"createdAt":"2026-01-01T00:00:00Z",
 				"updatedAt":"2026-01-01T00:02:00Z",
-				"finishedAt":"2026-01-01T00:02:00Z"
+				"finishedAt":"2026-01-01T00:02:00Z",
+				"timeline":[
+					{"phase":"created","status":"completed","timestamp":"2026-01-01T00:00:00Z"},
+					{"phase":"ready","status":"completed","timestamp":"2026-01-01T00:02:00Z"}
+				]
 			}`))
 		case r.URL.Path == "/api/v1/templates/tpl-1/builds/build-1/logs":
 			q := r.URL.Query()
@@ -892,6 +902,9 @@ func TestBuildListGetAndLogsEndpoints(t *testing.T) {
 	}
 	if buildResp.Status != "ready" || buildResp.Image == "" {
 		t.Fatalf("build = %#v", buildResp)
+	}
+	if len(buildResp.Timeline) != 2 || buildResp.Timeline[1].Phase != "ready" {
+		t.Fatalf("build timeline = %#v", buildResp.Timeline)
 	}
 
 	cursor := int64(0)

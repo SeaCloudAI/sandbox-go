@@ -231,14 +231,23 @@ type BuildRequest struct {
 
 // BuildResponse describes one build record.
 type BuildResponse struct {
-	BuildID      string     `json:"buildID"`
-	TemplateID   string     `json:"templateID"`
-	Status       string     `json:"status"`
-	Image        string     `json:"image"`
-	ErrorMessage string     `json:"errorMessage"`
-	CreatedAt    time.Time  `json:"createdAt"`
-	UpdatedAt    time.Time  `json:"updatedAt"`
-	FinishedAt   *time.Time `json:"finishedAt"`
+	BuildID      string               `json:"buildID"`
+	TemplateID   string               `json:"templateID"`
+	Status       string               `json:"status"`
+	Image        string               `json:"image"`
+	ErrorMessage string               `json:"errorMessage"`
+	CreatedAt    time.Time            `json:"createdAt"`
+	UpdatedAt    time.Time            `json:"updatedAt"`
+	FinishedAt   *time.Time           `json:"finishedAt"`
+	Timeline     []BuildTimelineEvent `json:"timeline,omitempty"`
+}
+
+// BuildTimelineEvent is a public build lifecycle event for user-facing diagnostics.
+type BuildTimelineEvent struct {
+	Phase     string    `json:"phase"`
+	Status    string    `json:"status"`
+	Timestamp time.Time `json:"timestamp"`
+	Message   string    `json:"message,omitempty"`
 }
 
 // BuildTriggerResponse captures the E2B empty-object build trigger response.
@@ -271,12 +280,23 @@ type BuildStatusParams struct {
 
 // BuildStatusResponse is returned by GET /status.
 type BuildStatusResponse struct {
-	BuildID    string          `json:"buildID"`
-	TemplateID string          `json:"templateID"`
-	Status     string          `json:"status"`
-	Logs       []string        `json:"logs"`
-	LogEntries []BuildLogEntry `json:"logEntries"`
-	Reason     any             `json:"reason"`
+	BuildID    string               `json:"buildID"`
+	TemplateID string               `json:"templateID"`
+	Status     string               `json:"status"`
+	Logs       []string             `json:"logs"`
+	LogEntries []BuildLogEntry      `json:"logEntries"`
+	Reason     any                  `json:"reason"`
+	Timeline   []BuildTimelineEvent `json:"timeline,omitempty"`
+	Steps      []BuildStepSummary   `json:"steps,omitempty"`
+}
+
+// BuildStepSummary summarizes public build-step progress from structured logs.
+type BuildStepSummary struct {
+	Step          string `json:"step"`
+	Status        string `json:"status"`
+	LogCount      int    `json:"logCount"`
+	LastTimestamp string `json:"lastTimestamp,omitempty"`
+	LastMessage   string `json:"lastMessage,omitempty"`
 }
 
 // BuildLogsParams configures GET /logs.

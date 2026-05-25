@@ -431,10 +431,20 @@ func TestObservabilitySummaryEndpoint(t *testing.T) {
 				"message":"User concurrent build quota is exhausted.",
 				"usageEndpoint":"/api/v1/usage/template-limits"
 			}],
+			"actions":[{
+				"status":"limit_reached",
+				"scope":"user",
+				"resource":"templates",
+				"message":"User concurrent build quota is exhausted. Review current usage before retrying.",
+				"endpoint":"/api/v1/usage/template-limits"
+			}],
 			"endpoints":{
 				"sandboxUsage":"/api/v1/usage/limits",
 				"templateUsage":"/api/v1/usage/template-limits",
+				"sandboxDetail":"/api/v1/sandboxes/{sandboxID}",
+				"sandboxMetrics":"/api/v1/sandboxes/{sandboxID}/metrics",
 				"sandboxLogs":"/api/v1/sandboxes/{sandboxID}/logs",
+				"buildStatus":"/api/v1/templates/{templateID}/builds/{buildID}/status",
 				"buildLogs":"/api/v1/templates/{templateID}/builds/{buildID}/logs"
 			}
 		}`))
@@ -463,6 +473,12 @@ func TestObservabilitySummaryEndpoint(t *testing.T) {
 	}
 	if len(summary.Checks) != 1 || summary.Checks[0].Metric != "concurrentBuilds" {
 		t.Fatalf("checks = %#v", summary.Checks)
+	}
+	if len(summary.Actions) != 1 || summary.Actions[0].Status != "limit_reached" {
+		t.Fatalf("actions = %#v", summary.Actions)
+	}
+	if summary.Endpoints.BuildStatus == "" || summary.Endpoints.SandboxMetrics == "" {
+		t.Fatalf("endpoints = %#v", summary.Endpoints)
 	}
 }
 
@@ -771,7 +787,14 @@ func TestSandboxLifecyclePaths(t *testing.T) {
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}
-			_, _ = w.Write([]byte(`{"sandboxID":"sb-1"}`))
+			_, _ = w.Write([]byte(`{
+				"sandboxID":"sb-1",
+				"timeline":[
+					{"phase":"created","status":"completed","timestamp":"2026-01-01T00:00:00Z"},
+					{"phase":"ready","status":"completed","timestamp":"2026-01-01T00:00:10Z"}
+				],
+				"diagnostic":{"reason":"waiting_for_ready","message":"Sandbox is waiting to become ready."}
+			}`))
 		case strings.HasSuffix(r.URL.Path, "/logs"):
 			_, _ = w.Write([]byte(`{
 				"logs":[],
@@ -798,8 +821,15 @@ func TestSandboxLifecyclePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	if _, err := service.GetSandbox(context.Background(), "sb-1"); err != nil {
+	detail, err := service.GetSandbox(context.Background(), "sb-1")
+	if err != nil {
 		t.Fatalf("GetSandbox: %v", err)
+	}
+	if len(detail.Timeline) != 2 || detail.Timeline[1].Phase != "ready" {
+		t.Fatalf("sandbox timeline = %#v", detail.Timeline)
+	}
+	if detail.Diagnostic == nil || detail.Diagnostic.Reason != "waiting_for_ready" {
+		t.Fatalf("sandbox diagnostic = %#v", detail.Diagnostic)
 	}
 	zero := int64(0)
 	ten := 10
