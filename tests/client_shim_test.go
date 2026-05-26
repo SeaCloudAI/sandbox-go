@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	sandbox "github.com/SeaCloudAI/sandbox-go"
@@ -18,7 +19,11 @@ type sdkClient struct {
 func newSDKClient(t *testing.T, baseURL string, transportOpts ...core.TransportOption) *sdkClient {
 	t.Helper()
 	t.Setenv("SEACLOUD_BASE_URL", baseURL)
-	t.Setenv("SEACLOUD_API_KEY", "unit-auth-value")
+	apiKey := os.Getenv("SEACLOUD_API_KEY")
+	if apiKey == "" {
+		apiKey = "unit-auth-value"
+	}
+	t.Setenv("SEACLOUD_API_KEY", apiKey)
 	return &sdkClient{t: t, transportOps: transportOpts}
 }
 
