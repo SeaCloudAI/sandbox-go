@@ -1137,7 +1137,7 @@ func TestTemplateImageHelpersAndSerialization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TemplateToDockerfile: %v", err)
 	}
-	if !strings.Contains(dockerfile, "FROM python:3.12") || !strings.Contains(dockerfile, "RUN pip install numpy") || !strings.Contains(dockerfile, "WORKDIR /app") || !strings.Contains(dockerfile, "USER root") {
+	if !strings.Contains(dockerfile, "FROM python:3.12") || !strings.Contains(dockerfile, `RUN ["sh", "-lc", "pip install numpy"]`) || !strings.Contains(dockerfile, "WORKDIR /app") || !strings.Contains(dockerfile, "USER root") {
 		t.Fatalf("dockerfile = %q", dockerfile)
 	}
 
@@ -1158,6 +1158,21 @@ func TestTemplateImageHelpersAndSerialization(t *testing.T) {
 		Request()
 	if gcpReq.FromImageRegistry["type"] != "gcp" {
 		t.Fatalf("gcp config = %#v", gcpReq.FromImageRegistry)
+	}
+}
+
+func TestTemplateToDockerfileEscapesMultilineRunCommands(t *testing.T) {
+	dockerfile, err := sandbox.TemplateToDockerfile(sandbox.NewTemplate().
+		FromImage("alpine:3.20", nil).
+		RunCmd("printf \"hello\n\" > /tmp/hello.txt", nil))
+	if err != nil {
+		t.Fatalf("TemplateToDockerfile: %v", err)
+	}
+	if !strings.Contains(dockerfile, `RUN ["sh", "-lc", "printf \"hello\n\" > /tmp/hello.txt"]`) {
+		t.Fatalf("dockerfile did not JSON-escape multiline RUN command: %q", dockerfile)
+	}
+	if strings.Contains(dockerfile, "\n\" > /tmp/hello.txt") {
+		t.Fatalf("dockerfile contains raw command newline: %q", dockerfile)
 	}
 }
 

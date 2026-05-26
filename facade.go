@@ -1683,7 +1683,7 @@ func TemplateToDockerfile(template *Template) (string, error) {
 			}
 		case "RUN":
 			if len(step.Args) >= 1 {
-				lines = append(lines, "RUN "+step.Args[0])
+				lines = append(lines, dockerfileRunLine(step.Args[0]))
 			}
 		case "ENV":
 			lines = append(lines, dockerfileEnvLines(step.Args)...)
@@ -2056,6 +2056,21 @@ func dockerfileEnvLines(args []string) []string {
 		lines = append(lines, "ENV "+name+"="+string(encoded))
 	}
 	return lines
+}
+
+func dockerfileRunLine(command string) string {
+	return `RUN ["sh", "-lc", ` + dockerfileJSONString(command) + `]`
+}
+
+func dockerfileJSONString(value string) string {
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		encoded, _ := json.Marshal(value)
+		return string(encoded)
+	}
+	return strings.TrimSpace(buf.String())
 }
 
 func buildNpmInstallCommand(packages []string, opts *TemplateNpmInstallOptions) string {
