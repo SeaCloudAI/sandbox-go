@@ -76,7 +76,7 @@ func TestClientHighLevelHelpersReuseStoredConfig(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newSDKClient(t, server.URL, core.WithProjectID("project-1"))
+	client := newSDKClient(t, server.URL+"/api/v1", core.WithProjectID("project-1"))
 
 	waitReady := true
 	created, err := client.Create(context.Background(), "base", &sandbox.CreateOptions{WaitReady: &waitReady})
@@ -154,7 +154,7 @@ func TestPackageLevelHelpersUseEnvFirstConfigAndTemplateFacade(t *testing.T) {
 
 	previousBaseURL := os.Getenv("SEACLOUD_BASE_URL")
 	previousAPIKey := os.Getenv("SEACLOUD_API_KEY")
-	t.Setenv("SEACLOUD_BASE_URL", server.URL)
+	t.Setenv("SEACLOUD_BASE_URL", server.URL+"/api/v1")
 	t.Setenv("SEACLOUD_API_KEY", "unit-auth-value")
 	defer func() {
 		_ = os.Setenv("SEACLOUD_BASE_URL", previousBaseURL)
@@ -210,7 +210,7 @@ func TestClientCreateRequiresTemplateID(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newSDKClient(t, server.URL)
+	client := newSDKClient(t, server.URL+"/api/v1")
 
 	if _, err := client.Create(context.Background(), "", nil); err == nil {
 		t.Fatal("expected Create to reject missing templateID")

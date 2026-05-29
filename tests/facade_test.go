@@ -23,7 +23,7 @@ import (
 
 func newClient(t *testing.T, baseURL string) *sdkClient {
 	t.Helper()
-	return newSDKClient(t, baseURL)
+	return newSDKClient(t, baseURL+"/api/v1")
 }
 
 func encodeProcessFrames(frames []map[string]any) ([]byte, error) {

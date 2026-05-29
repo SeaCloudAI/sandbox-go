@@ -19,7 +19,7 @@ func main() {
 	ctx := context.Background()
 
 	apiKey := mustEnv("SEACLOUD_API_KEY")
-	gatewayBaseURL := firstNonEmpty(strings.TrimSpace(os.Getenv("SEACLOUD_BASE_URL")), "https://sandbox-gateway.cloud.seaart.ai")
+	gatewayBaseURL := mustEnv("SEACLOUD_BASE_URL")
 	runtimeBaseImage := mustEnv("SANDBOX_EXAMPLE_RUNTIME_BASE_IMAGE")
 	keepResources := envEnabled("SANDBOX_EXAMPLE_KEEP_RESOURCES")
 	transportOpts := gatewayTransportOptions()
@@ -193,15 +193,6 @@ func firstNonEmptyLine(input string) string {
 		line = strings.TrimSpace(line)
 		if line != "" {
 			return line
-		}
-	}
-	return ""
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
 		}
 	}
 	return ""

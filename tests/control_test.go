@@ -65,7 +65,7 @@ func TestCreateSandbox(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newSDKClient(t, server.URL, core.WithProjectID("project-1"))
+	client := newSDKClient(t, server.URL+"/api/v1", core.WithProjectID("project-1"))
 
 	resp, err := client.CreateSandbox(context.Background(), &control.NewSandboxRequest{TemplateID: "base"})
 	if err != nil {
@@ -102,7 +102,7 @@ func TestCreateSandboxRequiresTemplateID(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value")
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestListSandboxesEncodesMetadataAndState(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value")
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestGatewayDiagnosticsIncludeRequestIDAndRedactSensitiveQuery(t *testing.T)
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value", core.WithLogger(func(event core.DiagnosticEvent) {
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value", core.WithLogger(func(event core.DiagnosticEvent) {
 		events = append(events, event)
 	}))
 	if err != nil {
@@ -220,7 +220,7 @@ func TestGatewayDiagnosticsIncludeAPIErrorDetails(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value", core.WithLogger(func(event core.DiagnosticEvent) {
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value", core.WithLogger(func(event core.DiagnosticEvent) {
 		events = append(events, event)
 	}))
 	if err != nil {
@@ -260,7 +260,7 @@ func TestGatewayDiagnosticLoggerPanicDoesNotAffectRequests(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value", core.WithLogger(func(event core.DiagnosticEvent) {
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value", core.WithLogger(func(event core.DiagnosticEvent) {
 		panic("logger failed")
 	}))
 	if err != nil {
@@ -342,7 +342,7 @@ func TestSandboxMetricsEndpoints(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value")
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -433,7 +433,7 @@ func TestObservabilitySummaryEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value", core.WithProjectID("project-1"))
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value", core.WithProjectID("project-1"))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -492,7 +492,7 @@ func TestRootListSandboxesReturnsBoundHandles(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newSDKClient(t, server.URL)
+	client := newSDKClient(t, server.URL+"/api/v1")
 
 	listed, err := client.ListSandboxes(context.Background(), nil)
 	if err != nil {
@@ -532,7 +532,7 @@ func TestWrappedResponseDecoding(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value")
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -562,7 +562,7 @@ func TestAPIErrorDecoding(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value")
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -608,13 +608,13 @@ func TestAdminControlEndpoints(t *testing.T) {
 		}{path: r.URL.Path, method: r.Method, body: body})
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/admin/pool/status":
+		case "/api/v1/admin/pool/status":
 			_, _ = w.Write([]byte(`{"code":0,"data":{"total":10,"warm":2,"active":3,"creating":1,"stopped":1,"deleting":1,"deleted":2,"utilization":0.5},"request_id":"req-pool"}`))
-		case "/admin/rolling/start":
+		case "/api/v1/admin/rolling/start":
 			_, _ = w.Write([]byte(`{"code":0,"data":{"phase":"running","progress":0.25,"warm_total":4,"warm_updated":1,"duration":"10s"},"request_id":"req-start"}`))
-		case "/admin/rolling/status":
+		case "/api/v1/admin/rolling/status":
 			_, _ = w.Write([]byte(`{"code":0,"data":{"phase":"running","progress":0.5,"warm_total":4,"warm_updated":2,"duration":"20s"},"request_id":"req-status"}`))
-		case "/admin/rolling/cancel":
+		case "/api/v1/admin/rolling/cancel":
 			_, _ = w.Write([]byte(`{"code":0,"data":{"phase":"cancelled","progress":0.5,"warm_total":4,"warm_updated":2,"duration":"21s"},"request_id":"req-cancel"}`))
 		default:
 			t.Fatalf("path = %s", r.URL.Path)
@@ -622,7 +622,7 @@ func TestAdminControlEndpoints(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value")
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -642,7 +642,7 @@ func TestAdminControlEndpoints(t *testing.T) {
 	if err != nil || cancelled.RequestID != "req-cancel" {
 		t.Fatalf("CancelRollingUpdate = %#v, %v", cancelled, err)
 	}
-	if calls[1].path != "/admin/rolling/start" || calls[1].body["templateId"] != "tpl-1" {
+	if calls[1].path != "/api/v1/admin/rolling/start" || calls[1].body["templateId"] != "tpl-1" {
 		t.Fatalf("start call = %#v", calls[1])
 	}
 	if _, err := service.StartRollingUpdate(context.Background(), &control.RollingStartRequest{TemplateID: " "}); err == nil {
@@ -658,7 +658,7 @@ func TestAPIErrorDecodingStringDetail(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value")
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -691,7 +691,7 @@ func TestAPIErrorKindClassification(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value")
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -716,10 +716,10 @@ func TestAPIErrorKindClassification(t *testing.T) {
 func TestSystemEndpoints(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/metrics":
+		case "/api/v1/metrics":
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("metric 1\n"))
-		case "/shutdown":
+		case "/api/v1/shutdown":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"message":"shutdown initiated"}`))
 		default:
@@ -728,7 +728,7 @@ func TestSystemEndpoints(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value")
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -799,7 +799,7 @@ func TestSandboxLifecyclePaths(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value")
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -914,7 +914,7 @@ func TestBoundSandboxHelpersUseStoredClient(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newSDKClient(t, server.URL)
+	client := newSDKClient(t, server.URL+"/api/v1")
 
 	created, err := client.CreateSandbox(context.Background(), &control.NewSandboxRequest{TemplateID: "base"})
 	if err != nil {
@@ -1000,7 +1000,7 @@ func TestBoundaryValuesThroughPublicAPIs(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := control.NewService(server.URL, "unit-auth-value")
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

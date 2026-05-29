@@ -95,7 +95,7 @@ func WithDebugLogger() TransportOption {
 	})
 }
 
-// NewTransport creates a shared authenticated transport for X-API-Key requests.
+// NewTransport creates a shared authenticated transport for control/build requests.
 func NewTransport(baseURL, apiKey string, opts ...TransportOption) (*Transport, error) {
 	if strings.TrimSpace(baseURL) == "" {
 		return nil, ErrBaseURLEmpty
@@ -129,6 +129,15 @@ func NewTransport(baseURL, apiKey string, opts ...TransportOption) (*Transport, 
 // BaseURL returns the normalized base URL.
 func (c *Transport) BaseURL() string {
 	return c.baseURL.String()
+}
+
+// APIPath normalizes a service path before resolving it against the configured API root.
+func (c *Transport) APIPath(path string) string {
+	suffix := strings.TrimSpace(path)
+	if !strings.HasPrefix(suffix, "/") {
+		suffix = "/" + suffix
+	}
+	return suffix
 }
 
 // NewRequest prepares an authenticated request against the configured API host.
@@ -257,19 +266,15 @@ func (c *Transport) DoRequest(
 }
 
 func (c *Transport) resolve(path string) (string, error) {
-	normalized := strings.TrimSpace(path)
-	if normalized == "" {
-		normalized = "/"
-	}
-	if !strings.HasPrefix(normalized, "/") {
-		normalized = "/" + normalized
-	}
-
-	ref, err := url.Parse(normalized)
+	base, err := url.Parse(strings.TrimRight(c.baseURL.String(), "/") + "/")
 	if err != nil {
 		return "", err
 	}
-	return c.baseURL.ResolveReference(ref).String(), nil
+	ref, err := url.Parse(strings.TrimLeft(strings.TrimSpace(path), "/"))
+	if err != nil {
+		return "", err
+	}
+	return base.ResolveReference(ref).String(), nil
 }
 
 func (c *Transport) emitAPIError(req *http.Request, err error, duration time.Duration) {

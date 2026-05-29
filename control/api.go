@@ -57,7 +57,7 @@ func (c *Service) CreateSandbox(ctx context.Context, req *NewSandboxRequest) (*S
 	}
 
 	var resp Sandbox
-	if _, err := c.DoJSON(ctx, http.MethodPost, "/api/v1/sandboxes", nil, nil, req, &resp, http.StatusCreated); err != nil {
+	if _, err := c.DoJSON(ctx, http.MethodPost, c.APIPath("/sandboxes"), nil, nil, req, &resp, http.StatusCreated); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -70,7 +70,7 @@ func (c *Service) ListSandboxes(ctx context.Context, params *ListSandboxesParams
 	}
 
 	var resp []ListedSandbox
-	if _, err := c.DoJSON(ctx, http.MethodGet, "/api/v1/sandboxes", nil, query, nil, &resp, http.StatusOK); err != nil {
+	if _, err := c.DoJSON(ctx, http.MethodGet, c.APIPath("/sandboxes"), nil, query, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -82,7 +82,7 @@ func (c *Service) GetSandbox(ctx context.Context, sandboxID string) (*SandboxDet
 	}
 
 	var resp SandboxDetail
-	path := "/api/v1/sandboxes/" + url.PathEscape(sandboxID)
+	path := c.APIPath("/sandboxes/" + url.PathEscape(sandboxID))
 	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (c *Service) GetSandboxMetrics(ctx context.Context, sandboxID string) (*San
 	}
 
 	var resp SandboxMetricSnapshot
-	path := "/api/v1/sandboxes/" + url.PathEscape(sandboxID) + "/metrics"
+	path := c.APIPath("/sandboxes/" + url.PathEscape(sandboxID) + "/metrics")
 	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func (c *Service) ListSandboxMetrics(ctx context.Context, params *SandboxMetrics
 	}
 
 	var resp SandboxMetricsResponse
-	if _, err := c.DoJSON(ctx, http.MethodGet, "/api/v1/sandboxes/metrics", nil, query, nil, &resp, http.StatusOK); err != nil {
+	if _, err := c.DoJSON(ctx, http.MethodGet, c.APIPath("/sandboxes/metrics"), nil, query, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -117,7 +117,7 @@ func (c *Service) ListSandboxMetrics(ctx context.Context, params *SandboxMetrics
 
 func (c *Service) GetObservabilitySummary(ctx context.Context) (*ObservabilitySummary, error) {
 	var resp ObservabilitySummary
-	if _, err := c.DoJSON(ctx, http.MethodGet, "/api/v1/observability/summary", nil, nil, nil, &resp, http.StatusOK); err != nil {
+	if _, err := c.DoJSON(ctx, http.MethodGet, c.APIPath("/observability/summary"), nil, nil, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -128,7 +128,7 @@ func (c *Service) DeleteSandbox(ctx context.Context, sandboxID string) error {
 		return ErrSandboxIDEmpty
 	}
 
-	path := "/api/v1/sandboxes/" + url.PathEscape(sandboxID)
+	path := c.APIPath("/sandboxes/" + url.PathEscape(sandboxID))
 	_, err := c.DoRequest(ctx, http.MethodDelete, path, nil, nil, nil, http.StatusNoContent)
 	return err
 }
@@ -147,7 +147,7 @@ func (c *Service) GetSandboxLogs(ctx context.Context, sandboxID string, params *
 	}
 
 	var resp SandboxLogsResponse
-	path := "/api/v1/sandboxes/" + url.PathEscape(sandboxID) + "/logs"
+	path := c.APIPath("/sandboxes/" + url.PathEscape(sandboxID) + "/logs")
 	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, query, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (c *Service) PauseSandbox(ctx context.Context, sandboxID string) error {
 		return ErrSandboxIDEmpty
 	}
 
-	path := "/api/v1/sandboxes/" + url.PathEscape(sandboxID) + "/pause"
+	path := c.APIPath("/sandboxes/" + url.PathEscape(sandboxID) + "/pause")
 	_, err := c.DoRequest(ctx, http.MethodPost, path, nil, nil, nil, http.StatusNoContent)
 	return err
 }
@@ -176,7 +176,7 @@ func (c *Service) ConnectSandbox(ctx context.Context, sandboxID string, req *Con
 	}
 
 	var resp Sandbox
-	path := "/api/v1/sandboxes/" + url.PathEscape(sandboxID) + "/connect"
+	path := c.APIPath("/sandboxes/" + url.PathEscape(sandboxID) + "/connect")
 	httpResp, err := c.DoJSON(ctx, http.MethodPost, path, nil, nil, req, &resp, http.StatusOK, http.StatusCreated)
 	if err != nil {
 		return nil, err
@@ -198,7 +198,7 @@ func (c *Service) SetSandboxTimeout(ctx context.Context, sandboxID string, req *
 		return err
 	}
 
-	path := "/api/v1/sandboxes/" + url.PathEscape(sandboxID) + "/timeout"
+	path := c.APIPath("/sandboxes/" + url.PathEscape(sandboxID) + "/timeout")
 	_, err := c.DoRequest(ctx, http.MethodPost, path, nil, nil, req, http.StatusNoContent)
 	return err
 }
@@ -211,7 +211,7 @@ func (c *Service) RefreshSandbox(ctx context.Context, sandboxID string, req *Ref
 		return err
 	}
 
-	path := "/api/v1/sandboxes/" + url.PathEscape(sandboxID) + "/refreshes"
+	path := c.APIPath("/sandboxes/" + url.PathEscape(sandboxID) + "/refreshes")
 	var body any
 	if req != nil {
 		body = req
@@ -232,7 +232,7 @@ func (c *Service) SendHeartbeat(ctx context.Context, sandboxID string, req *Hear
 	}
 
 	var wrapped wrappedResponse[HeartbeatResponse]
-	path := "/api/v1/sandboxes/" + url.PathEscape(sandboxID) + "/heartbeat"
+	path := c.APIPath("/sandboxes/" + url.PathEscape(sandboxID) + "/heartbeat")
 	if _, err := c.DoJSON(ctx, http.MethodPost, path, nil, nil, req, &wrapped, http.StatusOK); err != nil {
 		return nil, err
 	}

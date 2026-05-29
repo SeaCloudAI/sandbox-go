@@ -45,7 +45,7 @@ func (c *Service) CreateTemplate(ctx context.Context, req *TemplateCreateRequest
 	}
 
 	var resp TemplateCreateResponse
-	if _, err := c.DoJSON(ctx, http.MethodPost, "/api/v1/templates", nil, nil, req, &resp, http.StatusAccepted); err != nil {
+	if _, err := c.DoJSON(ctx, http.MethodPost, c.APIPath("/templates"), nil, nil, req, &resp, http.StatusAccepted); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -62,7 +62,7 @@ func (c *Service) ListTemplates(ctx context.Context, params *ListTemplatesParams
 	}
 
 	var resp []ListedTemplate
-	if _, err := c.DoJSON(ctx, http.MethodGet, "/api/v1/templates", nil, query, nil, &resp, http.StatusOK); err != nil {
+	if _, err := c.DoJSON(ctx, http.MethodGet, c.APIPath("/templates"), nil, query, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -74,7 +74,7 @@ func (c *Service) GetTemplateByAlias(ctx context.Context, alias string) (*Templa
 	}
 
 	var resp TemplateAliasResponse
-	path := "/api/v1/templates/aliases/" + url.PathEscape(alias)
+	path := c.APIPath("/templates/aliases/" + url.PathEscape(alias))
 	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func (c *Service) ResolveTemplateRef(ctx context.Context, ref string) (*Template
 	}
 
 	var resp TemplateAliasResponse
-	path := "/api/v1/templates/resolve/" + url.PathEscape(ref)
+	path := c.APIPath("/templates/resolve/" + url.PathEscape(ref))
 	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func (c *Service) GetTemplate(ctx context.Context, templateID string, params *Ge
 	}
 
 	var resp TemplateResponse
-	path := "/api/v1/templates/" + url.PathEscape(templateID)
+	path := c.APIPath("/templates/" + url.PathEscape(templateID))
 	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, query, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
@@ -124,7 +124,7 @@ func (c *Service) UpdateTemplate(ctx context.Context, templateID string, req *Te
 	}
 
 	var resp TemplateUpdateResponse
-	path := "/api/v1/templates/" + url.PathEscape(templateID)
+	path := c.APIPath("/templates/" + url.PathEscape(templateID))
 	if _, err := c.DoJSON(ctx, http.MethodPatch, path, nil, nil, req, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
@@ -136,7 +136,7 @@ func (c *Service) DeleteTemplate(ctx context.Context, templateID string) error {
 		return ErrTemplateEmpty
 	}
 
-	path := "/api/v1/templates/" + url.PathEscape(templateID)
+	path := c.APIPath("/templates/" + url.PathEscape(templateID))
 	_, err := c.DoRequest(ctx, http.MethodDelete, path, nil, nil, nil, http.StatusNoContent)
 	return err
 }
@@ -161,7 +161,7 @@ func (c *Service) CreateBuild(ctx context.Context, templateID, buildID string, r
 	}
 
 	var resp BuildTriggerResponse
-	path := "/api/v1/templates/" + url.PathEscape(templateID) + "/builds/" + url.PathEscape(buildID)
+	path := c.APIPath("/templates/" + url.PathEscape(templateID) + "/builds/" + url.PathEscape(buildID))
 	if _, err := c.DoJSON(ctx, http.MethodPost, path, nil, nil, body, &resp, http.StatusAccepted); err != nil {
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func (c *Service) GetBuildFile(ctx context.Context, templateID, hash string) (*F
 	}
 
 	var resp FilePresenceResponse
-	path := "/api/v1/templates/" + url.PathEscape(templateID) + "/files/" + url.PathEscape(hash)
+	path := c.APIPath("/templates/" + url.PathEscape(templateID) + "/files/" + url.PathEscape(hash))
 	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
@@ -196,7 +196,7 @@ func (c *Service) RollbackTemplate(ctx context.Context, templateID string, req *
 	}
 
 	var resp TemplateResponse
-	path := "/api/v1/templates/" + url.PathEscape(templateID) + "/rollback"
+	path := c.APIPath("/templates/" + url.PathEscape(templateID) + "/rollback")
 	if _, err := c.DoJSON(ctx, http.MethodPost, path, nil, nil, req, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
@@ -209,7 +209,7 @@ func (c *Service) ListBuilds(ctx context.Context, templateID string) (*BuildHist
 	}
 
 	var resp BuildHistoryResponse
-	path := "/api/v1/templates/" + url.PathEscape(templateID) + "/builds"
+	path := c.APIPath("/templates/" + url.PathEscape(templateID) + "/builds")
 	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func (c *Service) GetBuild(ctx context.Context, templateID, buildID string) (*Bu
 	}
 
 	var resp BuildResponse
-	path := "/api/v1/templates/" + url.PathEscape(templateID) + "/builds/" + url.PathEscape(buildID)
+	path := c.APIPath("/templates/" + url.PathEscape(templateID) + "/builds/" + url.PathEscape(buildID))
 	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
@@ -249,7 +249,7 @@ func (c *Service) GetBuildStatus(ctx context.Context, templateID, buildID string
 	}
 
 	var resp BuildStatusResponse
-	path := "/api/v1/templates/" + url.PathEscape(templateID) + "/builds/" + url.PathEscape(buildID) + "/status"
+	path := c.APIPath("/templates/" + url.PathEscape(templateID) + "/builds/" + url.PathEscape(buildID) + "/status")
 	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, query, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
@@ -273,7 +273,7 @@ func (c *Service) GetBuildLogs(ctx context.Context, templateID, buildID string, 
 	}
 
 	var resp BuildLogsResponse
-	path := "/api/v1/templates/" + url.PathEscape(templateID) + "/builds/" + url.PathEscape(buildID) + "/logs"
+	path := c.APIPath("/templates/" + url.PathEscape(templateID) + "/builds/" + url.PathEscape(buildID) + "/logs")
 	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, query, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}
@@ -285,7 +285,7 @@ func (c *Service) AssignTemplateTags(ctx context.Context, req *AssignTemplateTag
 		return nil, err
 	}
 	var resp AssignedTemplateTags
-	if _, err := c.DoJSON(ctx, http.MethodPost, "/api/v1/templates/tags", nil, nil, req, &resp, http.StatusCreated); err != nil {
+	if _, err := c.DoJSON(ctx, http.MethodPost, c.APIPath("/templates/tags"), nil, nil, req, &resp, http.StatusCreated); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -295,7 +295,7 @@ func (c *Service) DeleteTemplateTags(ctx context.Context, req *DeleteTemplateTag
 	if err := validateDeleteTemplateTagsRequest(req); err != nil {
 		return err
 	}
-	_, err := c.DoJSON(ctx, http.MethodDelete, "/api/v1/templates/tags", nil, nil, req, nil, http.StatusNoContent)
+	_, err := c.DoJSON(ctx, http.MethodDelete, c.APIPath("/templates/tags"), nil, nil, req, nil, http.StatusNoContent)
 	return err
 }
 
@@ -304,7 +304,7 @@ func (c *Service) ListTemplateTags(ctx context.Context, templateID string) ([]Te
 		return nil, ErrTemplateEmpty
 	}
 	var resp []TemplateTag
-	path := "/api/v1/templates/" + url.PathEscape(templateID) + "/tags"
+	path := c.APIPath("/templates/" + url.PathEscape(templateID) + "/tags")
 	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
 		return nil, err
 	}

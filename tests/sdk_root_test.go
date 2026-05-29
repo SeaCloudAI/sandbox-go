@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/SeaCloudAI/sandbox-go"
+	"github.com/SeaCloudAI/sandbox-go/control"
 )
 
 func TestNewRuntimeInitializesBaseURL(t *testing.T) {
@@ -27,12 +28,15 @@ func TestPackageLevelHelpersUseSeaCloudGatewayEnv(t *testing.T) {
 		if got := r.Header.Get("X-API-Key"); got != "unit-auth-value" {
 			t.Fatalf("api key = %q", got)
 		}
+		if got := r.Header.Get("Authorization"); got != "Bearer unit-auth-value" {
+			t.Fatalf("authorization = %q", got)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer server.Close()
 
-	t.Setenv("SEACLOUD_BASE_URL", server.URL)
+	t.Setenv("SEACLOUD_BASE_URL", server.URL+"/api/v1")
 	t.Setenv("SEACLOUD_API_KEY", "unit-auth-value")
 
 	paginator, err := sandbox.List(context.Background(), nil)
@@ -45,5 +49,30 @@ func TestPackageLevelHelpersUseSeaCloudGatewayEnv(t *testing.T) {
 	}
 	if len(listed) != 0 {
 		t.Fatalf("listed = %#v", listed)
+	}
+}
+
+func TestControlServiceUsesConfiguredBaseURLPath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/sandbox/sandboxes" || r.Method != http.MethodGet {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("X-API-Key"); got != "unit-auth-value" {
+			t.Fatalf("api key = %q", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer unit-auth-value" {
+			t.Fatalf("authorization = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	service, err := control.NewService(server.URL+"/api/v1/sandbox", "unit-auth-value")
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if _, err := service.ListSandboxes(context.Background(), nil); err != nil {
+		t.Fatalf("ListSandboxes: %v", err)
 	}
 }

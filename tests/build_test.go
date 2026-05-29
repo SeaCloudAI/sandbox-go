@@ -69,7 +69,7 @@ func TestCreateTemplateUsesGatewayAuthOnly(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestGetTemplateDecodesFullResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestListTemplatesEncodesQuery(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestTemplateValidationRejectsUnsupportedPublicExtensions(t *testing.T) {
 	}))
 	defer server.Close()
 
-	updateService, err := build.NewService(server.URL, "unit-auth-value")
+	updateService, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService update: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestGetTemplateByAliasUsesAliasEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestResolveTemplateRefUsesResolveEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -430,7 +430,7 @@ func TestCreateBuildReturnsRawEmptyObject(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -466,7 +466,7 @@ func TestCreateBuildUsesEmptyResponseAndEmptyBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -508,7 +508,7 @@ func TestCreateBuildEncodesSupportedFields(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -685,7 +685,7 @@ func TestBuildBoundaryValuesAreAccepted(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -804,7 +804,7 @@ func TestGetBuildStatusAllowsAnonymousPolling(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -883,7 +883,7 @@ func TestBuildListGetAndLogsEndpoints(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -938,7 +938,7 @@ func TestDeleteTemplateUsesAuthenticatedTransport(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -964,7 +964,7 @@ func TestBuildAPIErrorDecoding(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service, err := build.NewService(server.URL, "unit-auth-value")
+	service, err := build.NewService(server.URL+"/api/v1", "unit-auth-value")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
