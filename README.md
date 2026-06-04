@@ -96,6 +96,24 @@ func main() {
 
 That is the core loop: create an isolated cloud runtime, move files in, run real commands, and clean it up. Use `GetHost(port)` when you start an HTTP service and want a public proxy URL.
 
+## Network Control
+
+Use `network` on create to restrict sandbox egress. `allowOut` and `denyOut` accept IPv4 CIDRs or single IPv4 addresses; the control plane normalizes single IPs to `/32`.
+
+```go
+allowInternet := false
+
+sbx, err := sandbox.Create(ctx, "base", &sandbox.CreateOptions{
+	WaitReady: &ready,
+	Network: &sandbox.SandboxNetworkPolicy{
+		AllowInternetAccess: &allowInternet,
+		AllowOut:            []string{"1.1.1.1"},
+	},
+})
+```
+
+The platform keeps required DNS and control-plane heartbeat traffic working automatically. Domain allowlists are not supported yet; use IP/CIDR rules.
+
 ## Main Entrypoints
 
 - `sandbox.Create(...)`, `sandbox.Connect(...)`, `sandbox.List(...)`: create and manage sandboxes.

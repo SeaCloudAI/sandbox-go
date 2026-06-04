@@ -15,16 +15,29 @@ type VolumeMount struct {
 
 // NewSandboxRequest is the request body for creating a sandbox.
 type NewSandboxRequest struct {
-	TemplateID string            `json:"templateID"`
-	Timeout    *int64            `json:"timeout,omitempty"`
-	AutoPause  *bool             `json:"autoPause,omitempty"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
-	EnvVars    map[string]string `json:"envVars,omitempty"`
-	WaitReady  *bool             `json:"waitReady,omitempty"`
+	TemplateID string                `json:"templateID"`
+	Timeout    *int64                `json:"timeout,omitempty"`
+	AutoPause  *bool                 `json:"autoPause,omitempty"`
+	Metadata   map[string]string     `json:"metadata,omitempty"`
+	EnvVars    map[string]string     `json:"envVars,omitempty"`
+	WaitReady  *bool                 `json:"waitReady,omitempty"`
+	Network    *SandboxNetworkPolicy `json:"network,omitempty"`
 }
 
 type SandboxLifecycle struct {
 	OnTimeout string `json:"onTimeout"`
+}
+
+// SandboxNetworkPolicy controls per-sandbox network access.
+//
+// AllowInternetAccess=false enables egress isolation. AllowOut and DenyOut
+// accept IPv4 CIDR ranges or single IPv4 addresses; single IPs are normalized
+// by the control plane to /32.
+type SandboxNetworkPolicy struct {
+	AllowPublicTraffic  *bool    `json:"allowPublicTraffic,omitempty"`
+	AllowInternetAccess *bool    `json:"allowInternetAccess,omitempty"`
+	AllowOut            []string `json:"allowOut,omitempty"`
+	DenyOut             []string `json:"denyOut,omitempty"`
 }
 
 // SandboxTimelineEvent is a public lifecycle event for user-facing diagnostics.
@@ -57,6 +70,7 @@ type Sandbox struct {
 	EndAt           time.Time              `json:"endAt"`
 	Timeline        []SandboxTimelineEvent `json:"timeline,omitempty"`
 	Diagnostic      *SandboxDiagnostic     `json:"diagnostic,omitempty"`
+	Network         *SandboxNetworkPolicy  `json:"network,omitempty"`
 }
 
 // SandboxDetail is returned by GET /api/v1/sandboxes/:sandboxID.
@@ -80,6 +94,7 @@ type SandboxDetail struct {
 	ActivatedAt     *time.Time             `json:"activatedAt,omitempty"`
 	Timeline        []SandboxTimelineEvent `json:"timeline,omitempty"`
 	Diagnostic      *SandboxDiagnostic     `json:"diagnostic,omitempty"`
+	Network         *SandboxNetworkPolicy  `json:"network,omitempty"`
 }
 
 // ListedSandbox is returned by the list endpoint.
@@ -100,6 +115,7 @@ type ListedSandbox struct {
 	ActivatedAt  *time.Time             `json:"activatedAt,omitempty"`
 	Timeline     []SandboxTimelineEvent `json:"timeline,omitempty"`
 	Diagnostic   *SandboxDiagnostic     `json:"diagnostic,omitempty"`
+	Network      *SandboxNetworkPolicy  `json:"network,omitempty"`
 }
 
 // ListSandboxesParams configures GET /api/v1/sandboxes.

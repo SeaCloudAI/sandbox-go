@@ -28,6 +28,10 @@ func TestClientHighLevelHelpersReuseStoredConfig(t *testing.T) {
 			if req["templateID"] != "base" {
 				t.Fatalf("templateID = %#v", req["templateID"])
 			}
+			network, ok := req["network"].(map[string]any)
+			if !ok || network["allowInternetAccess"] != false {
+				t.Fatalf("network = %#v, want allowInternetAccess=false", req["network"])
+			}
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{
 				"sandboxID":"sb-high",
@@ -79,7 +83,14 @@ func TestClientHighLevelHelpersReuseStoredConfig(t *testing.T) {
 	client := newSDKClient(t, server.URL+"/api/v1", core.WithProjectID("project-1"))
 
 	waitReady := true
-	created, err := client.Create(context.Background(), "base", &sandbox.CreateOptions{WaitReady: &waitReady})
+	allowInternetAccess := false
+	created, err := client.Create(context.Background(), "base", &sandbox.CreateOptions{
+		WaitReady: &waitReady,
+		Network: &sandbox.SandboxNetworkPolicy{
+			AllowInternetAccess: &allowInternetAccess,
+			AllowOut:            []string{"1.1.1.1"},
+		},
+	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

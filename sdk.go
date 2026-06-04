@@ -74,6 +74,7 @@ func (g *gatewayServices) create(ctx context.Context, templateID string, opts *C
 		req.Metadata = opts.Metadata
 		req.EnvVars = opts.EnvVars
 		req.WaitReady = opts.WaitReady
+		req.Network = opts.Network
 	}
 	if strings.TrimSpace(req.TemplateID) == "" {
 		return nil, fmt.Errorf("sandbox: templateID is required")

@@ -47,6 +47,12 @@ func TestCreateSandbox(t *testing.T) {
 		if req.TemplateID != "base" {
 			t.Fatalf("templateID = %q", req.TemplateID)
 		}
+		if req.Network == nil || req.Network.AllowInternetAccess == nil || *req.Network.AllowInternetAccess {
+			t.Fatalf("network allowInternetAccess = %#v, want false", req.Network)
+		}
+		if got, want := req.Network.AllowOut, []string{"1.1.1.1"}; len(got) != len(want) || got[0] != want[0] {
+			t.Fatalf("network allowOut = %#v, want %#v", got, want)
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -58,6 +64,7 @@ func TestCreateSandbox(t *testing.T) {
 			"envdUrl":"https://sandbox-gateway.cloud.seaart.ai",
 			"status":"starting",
 			"state":"starting",
+			"network":{"allowInternetAccess":false,"allowOut":["1.1.1.1/32"]},
 			"startedAt":"2024-01-01T00:00:00Z",
 			"activatedAt":"2024-01-01T00:00:05Z",
 			"endAt":"2024-01-01T01:00:00Z"
@@ -67,7 +74,14 @@ func TestCreateSandbox(t *testing.T) {
 
 	client := newSDKClient(t, server.URL+"/api/v1", core.WithProjectID("project-1"))
 
-	resp, err := client.CreateSandbox(context.Background(), &control.NewSandboxRequest{TemplateID: "base"})
+	allowInternetAccess := false
+	resp, err := client.CreateSandbox(context.Background(), &control.NewSandboxRequest{
+		TemplateID: "base",
+		Network: &control.SandboxNetworkPolicy{
+			AllowInternetAccess: &allowInternetAccess,
+			AllowOut:            []string{"1.1.1.1"},
+		},
+	})
 	if err != nil {
 		t.Fatalf("CreateSandbox: %v", err)
 	}
@@ -76,6 +90,9 @@ func TestCreateSandbox(t *testing.T) {
 	}
 	if resp.ActivatedAt == nil || resp.ActivatedAt.Format(time.RFC3339) != "2024-01-01T00:00:05Z" {
 		t.Fatalf("activatedAt = %#v", resp.ActivatedAt)
+	}
+	if resp.Network == nil || len(resp.Network.AllowOut) != 1 || resp.Network.AllowOut[0] != "1.1.1.1/32" {
+		t.Fatalf("response network = %#v", resp.Network)
 	}
 	runtime, err := resp.Runtime()
 	if err != nil {

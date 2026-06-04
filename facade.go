@@ -24,10 +24,13 @@ import (
 
 	"github.com/SeaCloudAI/sandbox-go/build"
 	"github.com/SeaCloudAI/sandbox-go/cmd"
+	"github.com/SeaCloudAI/sandbox-go/control"
 	"github.com/SeaCloudAI/sandbox-go/core"
 )
 
 const autoCopyPrefix = "__auto_copy__:"
+
+type SandboxNetworkPolicy = control.SandboxNetworkPolicy
 
 type CreateOptions struct {
 	TemplateID string
@@ -36,6 +39,7 @@ type CreateOptions struct {
 	Metadata   map[string]string
 	EnvVars    map[string]string
 	WaitReady  *bool
+	Network    *SandboxNetworkPolicy
 }
 
 type ConnectOptions struct {

@@ -93,6 +93,7 @@ func (c *sdkClient) CreateSandbox(ctx context.Context, req *control.NewSandboxRe
 		opts.Metadata = req.Metadata
 		opts.EnvVars = req.EnvVars
 		opts.WaitReady = req.WaitReady
+		opts.Network = req.Network
 	}
 	return sandbox.Create(ctx, templateID, opts, c.transportOps...)
 }
