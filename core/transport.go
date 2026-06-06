@@ -17,12 +17,14 @@ import (
 
 // Transport is the shared HTTP entry point for the SDK.
 type Transport struct {
-	baseURL    *url.URL
-	apiKey     string
-	httpClient *http.Client
-	userAgent  string
-	projectID  string
-	logger     DiagnosticLogger
+	baseURL     *url.URL
+	apiKey      string
+	httpClient  *http.Client
+	userAgent   string
+	namespaceID string
+	userID      string
+	projectID   string
+	logger      DiagnosticLogger
 }
 
 type TransportOption func(*Transport)
@@ -68,6 +70,20 @@ func WithTimeout(timeout time.Duration) TransportOption {
 func WithProjectID(projectID string) TransportOption {
 	return func(c *Transport) {
 		c.projectID = strings.TrimSpace(projectID)
+	}
+}
+
+// WithNamespaceID injects X-Namespace-ID on every control/build-plane request.
+func WithNamespaceID(namespaceID string) TransportOption {
+	return func(c *Transport) {
+		c.namespaceID = strings.TrimSpace(namespaceID)
+	}
+}
+
+// WithUserID injects X-User-ID on every control/build-plane request.
+func WithUserID(userID string) TransportOption {
+	return func(c *Transport) {
+		c.userID = strings.TrimSpace(userID)
 	}
 }
 
@@ -155,6 +171,12 @@ func (c *Transport) NewRequest(ctx context.Context, method, path string, body io
 	req.Header.Set("X-API-Key", c.apiKey)
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("User-Agent", c.userAgent)
+	if c.namespaceID != "" {
+		req.Header.Set("X-Namespace-ID", c.namespaceID)
+	}
+	if c.userID != "" {
+		req.Header.Set("X-User-ID", c.userID)
+	}
 	if c.projectID != "" {
 		req.Header.Set("X-Project-ID", c.projectID)
 	}

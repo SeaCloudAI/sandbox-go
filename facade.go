@@ -33,13 +33,16 @@ const autoCopyPrefix = "__auto_copy__:"
 type SandboxNetworkPolicy = control.SandboxNetworkPolicy
 
 type CreateOptions struct {
-	TemplateID string
-	Timeout    *int64
-	AutoPause  *bool
-	Metadata   map[string]string
-	EnvVars    map[string]string
-	WaitReady  *bool
-	Network    *SandboxNetworkPolicy
+	TemplateID          string
+	Timeout             *int64
+	AutoPause           *bool
+	AutoResume          *bool
+	AllowInternetAccess *bool
+	Metadata            map[string]string
+	EnvVars             map[string]string
+	WaitReady           *bool
+	Network             *SandboxNetworkPolicy
+	VolumeMounts        []control.VolumeMount
 }
 
 type ConnectOptions struct {

@@ -15,17 +15,21 @@ type VolumeMount struct {
 
 // NewSandboxRequest is the request body for creating a sandbox.
 type NewSandboxRequest struct {
-	TemplateID string                `json:"templateID"`
-	Timeout    *int64                `json:"timeout,omitempty"`
-	AutoPause  *bool                 `json:"autoPause,omitempty"`
-	Metadata   map[string]string     `json:"metadata,omitempty"`
-	EnvVars    map[string]string     `json:"envVars,omitempty"`
-	WaitReady  *bool                 `json:"waitReady,omitempty"`
-	Network    *SandboxNetworkPolicy `json:"network,omitempty"`
+	TemplateID          string                `json:"templateID,omitempty"`
+	Timeout             *int64                `json:"timeout,omitempty"`
+	AutoPause           *bool                 `json:"autoPause,omitempty"`
+	AutoResume          *bool                 `json:"autoResume,omitempty"`
+	AllowInternetAccess *bool                 `json:"allowInternetAccess,omitempty"`
+	Metadata            map[string]string     `json:"metadata,omitempty"`
+	EnvVars             map[string]string     `json:"envVars,omitempty"`
+	WaitReady           *bool                 `json:"waitReady,omitempty"`
+	Network             *SandboxNetworkPolicy `json:"network,omitempty"`
+	VolumeMounts        []VolumeMount         `json:"volumeMounts,omitempty"`
 }
 
 type SandboxLifecycle struct {
-	OnTimeout string `json:"onTimeout"`
+	OnTimeout  string `json:"onTimeout"`
+	AutoResume bool   `json:"autoResume,omitempty"`
 }
 
 // SandboxNetworkPolicy controls per-sandbox network access.
@@ -38,6 +42,148 @@ type SandboxNetworkPolicy struct {
 	AllowInternetAccess *bool    `json:"allowInternetAccess,omitempty"`
 	AllowOut            []string `json:"allowOut,omitempty"`
 	DenyOut             []string `json:"denyOut,omitempty"`
+}
+
+// SandboxLifecycleEvent is a lifecycle event returned by /api/v1/events.
+type SandboxLifecycleEvent struct {
+	Version            string         `json:"version"`
+	ID                 string         `json:"id"`
+	Type               string         `json:"type"`
+	EventData          map[string]any `json:"eventData,omitempty"`
+	SandboxBuildID     string         `json:"sandboxBuildId,omitempty"`
+	SandboxExecutionID string         `json:"sandboxExecutionId,omitempty"`
+	SandboxID          string         `json:"sandboxId"`
+	SandboxTeamID      string         `json:"sandboxTeamId"`
+	SandboxTemplateID  string         `json:"sandboxTemplateId,omitempty"`
+	Timestamp          time.Time      `json:"timestamp"`
+}
+
+// ListSandboxEventsParams configures lifecycle event queries.
+type ListSandboxEventsParams struct {
+	Offset   int
+	Limit    int
+	OrderAsc *bool
+	Types    []string
+}
+
+// WebhookRetryPolicy configures webhook delivery retries and dead-letter behavior.
+type WebhookRetryPolicy struct {
+	MaxAttempts       int   `json:"maxAttempts"`
+	DelaySeconds      []int `json:"delaySeconds,omitempty"`
+	DeadLetterEnabled bool  `json:"deadLetterEnabled,omitempty"`
+}
+
+type LifecycleWebhook struct {
+	ID            string              `json:"id"`
+	TeamID        string              `json:"teamId"`
+	Name          string              `json:"name"`
+	CreatedAt     time.Time           `json:"createdAt"`
+	UpdatedAt     *time.Time          `json:"updatedAt,omitempty"`
+	Enabled       bool                `json:"enabled"`
+	URL           string              `json:"url"`
+	Events        []string            `json:"events"`
+	RetryPolicy   *WebhookRetryPolicy `json:"retryPolicy,omitempty"`
+	DeadLetterURL string              `json:"deadLetterUrl,omitempty"`
+}
+
+type LifecycleWebhookCreateRequest struct {
+	Name            string              `json:"name"`
+	URL             string              `json:"url"`
+	Enabled         *bool               `json:"enabled,omitempty"`
+	Events          []string            `json:"events"`
+	SignatureSecret string              `json:"signatureSecret"`
+	RetryPolicy     *WebhookRetryPolicy `json:"retryPolicy,omitempty"`
+	DeadLetterURL   string              `json:"deadLetterUrl,omitempty"`
+}
+
+type LifecycleWebhookUpdateRequest struct {
+	Name            *string             `json:"name,omitempty"`
+	URL             *string             `json:"url,omitempty"`
+	Enabled         *bool               `json:"enabled,omitempty"`
+	Events          []string            `json:"events,omitempty"`
+	SignatureSecret *string             `json:"signatureSecret,omitempty"`
+	RetryPolicy     *WebhookRetryPolicy `json:"retryPolicy,omitempty"`
+	DeadLetterURL   *string             `json:"deadLetterUrl,omitempty"`
+}
+
+type DeleteWebhookResponse struct {
+	Deleted bool `json:"deleted"`
+}
+
+type LifecycleWebhookDelivery struct {
+	ID              string     `json:"id"`
+	EventID         string     `json:"eventId"`
+	WebhookID       string     `json:"webhookId"`
+	NamespaceID     string     `json:"namespaceId"`
+	TeamID          string     `json:"teamId"`
+	URL             string     `json:"url"`
+	Status          string     `json:"status"`
+	HTTPStatus      int        `json:"httpStatus,omitempty"`
+	Attempts        int        `json:"attempts"`
+	MaxAttempts     int        `json:"maxAttempts,omitempty"`
+	Error           string     `json:"error,omitempty"`
+	DeadLetterURL   string     `json:"deadLetterUrl,omitempty"`
+	DeadLetterError string     `json:"deadLetterError,omitempty"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	LastAttemptAt   *time.Time `json:"lastAttemptAt,omitempty"`
+	NextAttemptAt   *time.Time `json:"nextAttemptAt,omitempty"`
+	DeliveredAt     *time.Time `json:"deliveredAt,omitempty"`
+}
+
+// ListWebhookDeliveriesParams configures webhook delivery queries.
+type ListWebhookDeliveriesParams struct {
+	Offset    int
+	Limit     int
+	OrderAsc  *bool
+	WebhookID string
+	EventID   string
+	Status    string
+}
+
+type Volume struct {
+	VolumeID string `json:"volumeID"`
+	Name     string `json:"name"`
+}
+
+type VolumeAndToken struct {
+	VolumeID string `json:"volumeID"`
+	Name     string `json:"name"`
+	Token    string `json:"token"`
+}
+
+type NewVolumeRequest struct {
+	Name string `json:"name"`
+}
+
+type Team struct {
+	TeamID    string `json:"teamID"`
+	Name      string `json:"name"`
+	APIKey    string `json:"apiKey"`
+	IsDefault bool   `json:"isDefault"`
+}
+
+type TeamMetric struct {
+	Timestamp           time.Time `json:"timestamp"`
+	TimestampUnix       int64     `json:"timestampUnix"`
+	ConcurrentSandboxes int32     `json:"concurrentSandboxes"`
+	SandboxStartRate    float64   `json:"sandboxStartRate"`
+}
+
+type MaxTeamMetric struct {
+	Timestamp     time.Time `json:"timestamp"`
+	TimestampUnix int64     `json:"timestampUnix"`
+	Value         float64   `json:"value"`
+}
+
+type TeamMetricsParams struct {
+	Start int64
+	End   int64
+}
+
+type TeamMetricsMaxParams struct {
+	Metric string
+	Start  int64
+	End    int64
 }
 
 // SandboxTimelineEvent is a public lifecycle event for user-facing diagnostics.
@@ -124,6 +270,13 @@ type ListSandboxesParams struct {
 	State     []string
 	Limit     int
 	NextToken string
+}
+
+// SandboxesPage includes the array response plus pagination headers.
+type SandboxesPage struct {
+	Items     []ListedSandbox
+	NextToken string
+	HasNext   bool
 }
 
 // SandboxMetricSnapshot is one sandbox control-plane metrics snapshot.

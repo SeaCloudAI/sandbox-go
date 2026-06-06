@@ -103,19 +103,29 @@ func TestCreateSandbox(t *testing.T) {
 	}
 }
 
-func TestCreateSandboxRequiresTemplateID(t *testing.T) {
+func TestCreateSandboxUsesDefaultTemplateWhenTemplateIDOmitted(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		if req["templateID"] != "base" {
-			t.Fatalf("templateID = %#v", req["templateID"])
+		if _, ok := req["templateID"]; ok {
+			t.Fatalf("templateID should be omitted, got %#v", req["templateID"])
+		}
+		if got := req["autoResume"]; got != true {
+			t.Fatalf("autoResume = %#v", got)
+		}
+		if got := req["allowInternetAccess"]; got != false {
+			t.Fatalf("allowInternetAccess = %#v", got)
+		}
+		mounts, ok := req["volumeMounts"].([]any)
+		if !ok || len(mounts) != 1 {
+			t.Fatalf("volumeMounts = %#v", req["volumeMounts"])
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"sandboxID":"sb-234","clientID":"user-1","status":"starting","startedAt":"2024-01-01T00:00:00Z","endAt":"2024-01-01T01:00:00Z"}`))
+		_, _ = w.Write([]byte(`{"templateID":"base","sandboxID":"sb-234","clientID":"user-1","status":"starting","startedAt":"2024-01-01T00:00:00Z","endAt":"2024-01-01T01:00:00Z"}`))
 	}))
 	defer server.Close()
 
@@ -124,11 +134,13 @@ func TestCreateSandboxRequiresTemplateID(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	if _, err := service.CreateSandbox(context.Background(), &control.NewSandboxRequest{WaitReady: boolPtr(true)}); err == nil {
-		t.Fatal("expected missing templateID to be rejected")
-	}
-
-	resp, err := service.CreateSandbox(context.Background(), &control.NewSandboxRequest{TemplateID: "base", WaitReady: boolPtr(true)})
+	autoResume := true
+	allowInternetAccess := false
+	resp, err := service.CreateSandbox(context.Background(), &control.NewSandboxRequest{
+		AutoResume:          &autoResume,
+		AllowInternetAccess: &allowInternetAccess,
+		VolumeMounts:        []control.VolumeMount{{Name: "cache", Path: "/cache"}},
+	})
 	if err != nil {
 		t.Fatalf("CreateSandbox: %v", err)
 	}
@@ -154,6 +166,8 @@ func TestListSandboxesEncodesMetadataAndState(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Next-Token", "30")
+		w.Header().Set("X-Has-Next", "true")
 		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer server.Close()
@@ -163,14 +177,111 @@ func TestListSandboxesEncodesMetadataAndState(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	_, err = service.ListSandboxes(context.Background(), &control.ListSandboxesParams{
+	page, err := service.ListSandboxesPage(context.Background(), &control.ListSandboxesParams{
 		Metadata:  map[string]string{"app": "prod", "team": "atlas"},
 		State:     []string{"running", "paused"},
 		Limit:     10,
 		NextToken: "20",
 	})
 	if err != nil {
-		t.Fatalf("ListSandboxes: %v", err)
+		t.Fatalf("ListSandboxesPage: %v", err)
+	}
+	if page.NextToken != "30" || !page.HasNext {
+		t.Fatalf("page = %#v", page)
+	}
+}
+
+func TestControlLifecycleVolumesAndTeams(t *testing.T) {
+	var calls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.RequestURI())
+		if got := r.Header.Get("X-Namespace-ID"); got != "ns-1" {
+			t.Fatalf("namespace header = %q", got)
+		}
+		if got := r.Header.Get("X-User-ID"); got != "user-1" {
+			t.Fatalf("user header = %q", got)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/events/sandboxes":
+			if got := r.URL.Query().Get("types"); got != "sandbox.lifecycle.created" {
+				t.Fatalf("types = %q", got)
+			}
+			_, _ = w.Write([]byte(`[{"version":"v1","id":"evt-1","type":"sandbox.lifecycle.created","sandboxId":"sb-1","sandboxTeamId":"project-1","timestamp":"2026-06-04T09:00:00Z"}]`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/events/webhooks":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"wh-1","teamId":"project-1","name":"lifecycle","createdAt":"2026-06-04T09:00:00Z","enabled":true,"url":"https://example.com/hook","events":["sandbox.lifecycle.created"],"retryPolicy":{"maxAttempts":5,"delaySeconds":[1,5],"deadLetterEnabled":true},"deadLetterUrl":"https://example.com/dlq"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/events/webhook-deliveries":
+			if got := r.URL.Query().Get("webhookID"); got != "wh-1" {
+				t.Fatalf("webhookID = %q", got)
+			}
+			_, _ = w.Write([]byte(`[{"id":"del-1","eventId":"evt-1","webhookId":"wh-1","namespaceId":"ns-1","teamId":"project-1","url":"https://example.com/hook","status":"succeeded","attempts":1,"createdAt":"2026-06-04T09:00:00Z"}]`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/events/webhook-deliveries/del-1/replay":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"id":"del-2","eventId":"evt-1","webhookId":"wh-1","namespaceId":"ns-1","teamId":"project-1","url":"https://example.com/hook","status":"pending","attempts":0,"createdAt":"2026-06-04T09:00:01Z"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/volumes":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"volumeID":"vol-1","name":"cache","token":"token-1"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/volumes":
+			_, _ = w.Write([]byte(`[{"volumeID":"vol-1","name":"cache"}]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/teams":
+			_, _ = w.Write([]byte(`[{"teamID":"project-1","name":"project-1","apiKey":"key-1","isDefault":true}]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/teams/project-1/metrics/max":
+			if got := r.URL.Query().Get("metric"); got != "concurrent_sandboxes" {
+				t.Fatalf("metric = %q", got)
+			}
+			_, _ = w.Write([]byte(`{"timestamp":"2026-06-04T09:00:00Z","timestampUnix":1780563600,"value":3}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	service, err := control.NewService(server.URL+"/api/v1", "unit-auth-value", core.WithNamespaceID("ns-1"), core.WithUserID("user-1"))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	events, err := service.ListSandboxEvents(context.Background(), &control.ListSandboxEventsParams{Types: []string{"sandbox.lifecycle.created"}})
+	if err != nil || len(events) != 1 {
+		t.Fatalf("ListSandboxEvents = %#v, %v", events, err)
+	}
+	webhook, err := service.CreateWebhook(context.Background(), &control.LifecycleWebhookCreateRequest{
+		Name:            "lifecycle",
+		URL:             "https://example.com/hook",
+		Events:          []string{"sandbox.lifecycle.created"},
+		SignatureSecret: "secret",
+		RetryPolicy:     &control.WebhookRetryPolicy{MaxAttempts: 5, DelaySeconds: []int{1, 5}, DeadLetterEnabled: true},
+		DeadLetterURL:   "https://example.com/dlq",
+	})
+	if err != nil || webhook.RetryPolicy == nil || webhook.RetryPolicy.MaxAttempts != 5 {
+		t.Fatalf("CreateWebhook = %#v, %v", webhook, err)
+	}
+	deliveries, err := service.ListWebhookDeliveries(context.Background(), &control.ListWebhookDeliveriesParams{WebhookID: "wh-1"})
+	if err != nil || len(deliveries) != 1 {
+		t.Fatalf("ListWebhookDeliveries = %#v, %v", deliveries, err)
+	}
+	if _, err := service.ReplayWebhookDelivery(context.Background(), "del-1"); err != nil {
+		t.Fatalf("ReplayWebhookDelivery: %v", err)
+	}
+	if _, err := service.CreateVolume(context.Background(), &control.NewVolumeRequest{Name: "cache"}); err != nil {
+		t.Fatalf("CreateVolume: %v", err)
+	}
+	volumes, err := service.ListVolumes(context.Background())
+	if err != nil || len(volumes) != 1 {
+		t.Fatalf("ListVolumes = %#v, %v", volumes, err)
+	}
+	teams, err := service.ListTeams(context.Background())
+	if err != nil || len(teams) != 1 {
+		t.Fatalf("ListTeams = %#v, %v", teams, err)
+	}
+	maxMetric, err := service.GetTeamMetricsMax(context.Background(), "project-1", &control.TeamMetricsMaxParams{Metric: "concurrent_sandboxes"})
+	if err != nil || maxMetric.Value != 3 {
+		t.Fatalf("GetTeamMetricsMax = %#v, %v", maxMetric, err)
+	}
+	if len(calls) != 8 {
+		t.Fatalf("calls = %#v", calls)
 	}
 }
 

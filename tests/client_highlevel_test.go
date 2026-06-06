@@ -203,7 +203,7 @@ func TestPackageLevelHelpersUseEnvFirstConfigAndTemplateFacade(t *testing.T) {
 	}
 }
 
-func TestClientCreateRequiresTemplateID(t *testing.T) {
+func TestClientCreateDefaultsTemplateWhenTemplateIDOmitted(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/sandboxes" || r.Method != http.MethodPost {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -223,7 +223,11 @@ func TestClientCreateRequiresTemplateID(t *testing.T) {
 
 	client := newSDKClient(t, server.URL+"/api/v1")
 
-	if _, err := client.Create(context.Background(), "", nil); err == nil {
-		t.Fatal("expected Create to reject missing templateID")
+	created, err := client.Create(context.Background(), "", nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.TemplateID != "base" {
+		t.Fatalf("templateID = %q", created.TemplateID)
 	}
 }

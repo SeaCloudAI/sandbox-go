@@ -52,8 +52,8 @@ func (c *Service) Shutdown(ctx context.Context) (*ShutdownResponse, error) {
 }
 
 func (c *Service) CreateSandbox(ctx context.Context, req *NewSandboxRequest) (*Sandbox, error) {
-	if req == nil || strings.TrimSpace(req.TemplateID) == "" {
-		return nil, ErrTemplateEmpty
+	if req == nil {
+		req = &NewSandboxRequest{}
 	}
 
 	var resp Sandbox
@@ -63,17 +63,250 @@ func (c *Service) CreateSandbox(ctx context.Context, req *NewSandboxRequest) (*S
 	return &resp, nil
 }
 
+func (c *Service) ListSandboxEvents(ctx context.Context, params *ListSandboxEventsParams) ([]SandboxLifecycleEvent, error) {
+	var query url.Values
+	if params != nil {
+		query = params.encode()
+	}
+
+	var resp []SandboxLifecycleEvent
+	if _, err := c.DoJSON(ctx, http.MethodGet, c.APIPath("/events/sandboxes"), nil, query, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Service) ListSandboxEventsBySandbox(ctx context.Context, sandboxID string, params *ListSandboxEventsParams) ([]SandboxLifecycleEvent, error) {
+	if strings.TrimSpace(sandboxID) == "" {
+		return nil, ErrSandboxIDEmpty
+	}
+	var query url.Values
+	if params != nil {
+		query = params.encode()
+	}
+
+	var resp []SandboxLifecycleEvent
+	path := c.APIPath("/events/sandboxes/" + url.PathEscape(sandboxID))
+	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, query, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Service) CreateWebhook(ctx context.Context, req *LifecycleWebhookCreateRequest) (*LifecycleWebhook, error) {
+	if req == nil {
+		return nil, fmt.Errorf("sandbox: webhook create request is required")
+	}
+
+	var resp LifecycleWebhook
+	if _, err := c.DoJSON(ctx, http.MethodPost, c.APIPath("/events/webhooks"), nil, nil, req, &resp, http.StatusCreated); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Service) ListWebhooks(ctx context.Context) ([]LifecycleWebhook, error) {
+	var resp []LifecycleWebhook
+	if _, err := c.DoJSON(ctx, http.MethodGet, c.APIPath("/events/webhooks"), nil, nil, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Service) GetWebhook(ctx context.Context, webhookID string) (*LifecycleWebhook, error) {
+	if strings.TrimSpace(webhookID) == "" {
+		return nil, fmt.Errorf("sandbox: webhookID is required")
+	}
+
+	var resp LifecycleWebhook
+	path := c.APIPath("/events/webhooks/" + url.PathEscape(webhookID))
+	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Service) UpdateWebhook(ctx context.Context, webhookID string, req *LifecycleWebhookUpdateRequest) (*LifecycleWebhook, error) {
+	if strings.TrimSpace(webhookID) == "" {
+		return nil, fmt.Errorf("sandbox: webhookID is required")
+	}
+	if req == nil {
+		return nil, fmt.Errorf("sandbox: webhook update request is required")
+	}
+
+	var resp LifecycleWebhook
+	path := c.APIPath("/events/webhooks/" + url.PathEscape(webhookID))
+	if _, err := c.DoJSON(ctx, http.MethodPatch, path, nil, nil, req, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Service) DeleteWebhook(ctx context.Context, webhookID string) (*DeleteWebhookResponse, error) {
+	if strings.TrimSpace(webhookID) == "" {
+		return nil, fmt.Errorf("sandbox: webhookID is required")
+	}
+
+	var resp DeleteWebhookResponse
+	path := c.APIPath("/events/webhooks/" + url.PathEscape(webhookID))
+	if _, err := c.DoJSON(ctx, http.MethodDelete, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Service) ListWebhookDeliveries(ctx context.Context, params *ListWebhookDeliveriesParams) ([]LifecycleWebhookDelivery, error) {
+	var query url.Values
+	if params != nil {
+		query = params.encode()
+	}
+
+	var resp []LifecycleWebhookDelivery
+	if _, err := c.DoJSON(ctx, http.MethodGet, c.APIPath("/events/webhook-deliveries"), nil, query, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Service) ListWebhookDeliveriesByWebhook(ctx context.Context, webhookID string, params *ListWebhookDeliveriesParams) ([]LifecycleWebhookDelivery, error) {
+	if strings.TrimSpace(webhookID) == "" {
+		return nil, fmt.Errorf("sandbox: webhookID is required")
+	}
+	var query url.Values
+	if params != nil {
+		query = params.encode()
+	}
+
+	var resp []LifecycleWebhookDelivery
+	path := c.APIPath("/events/webhooks/" + url.PathEscape(webhookID) + "/deliveries")
+	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, query, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Service) ReplayWebhookDelivery(ctx context.Context, deliveryID string) (*LifecycleWebhookDelivery, error) {
+	if strings.TrimSpace(deliveryID) == "" {
+		return nil, fmt.Errorf("sandbox: deliveryID is required")
+	}
+
+	var resp LifecycleWebhookDelivery
+	path := c.APIPath("/events/webhook-deliveries/" + url.PathEscape(deliveryID) + "/replay")
+	if _, err := c.DoJSON(ctx, http.MethodPost, path, nil, nil, nil, &resp, http.StatusAccepted); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Service) ListVolumes(ctx context.Context) ([]Volume, error) {
+	var resp []Volume
+	if _, err := c.DoJSON(ctx, http.MethodGet, c.APIPath("/volumes"), nil, nil, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Service) CreateVolume(ctx context.Context, req *NewVolumeRequest) (*VolumeAndToken, error) {
+	if req == nil {
+		return nil, fmt.Errorf("sandbox: volume create request is required")
+	}
+
+	var resp VolumeAndToken
+	if _, err := c.DoJSON(ctx, http.MethodPost, c.APIPath("/volumes"), nil, nil, req, &resp, http.StatusCreated); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Service) GetVolume(ctx context.Context, volumeID string) (*VolumeAndToken, error) {
+	if strings.TrimSpace(volumeID) == "" {
+		return nil, fmt.Errorf("sandbox: volumeID is required")
+	}
+
+	var resp VolumeAndToken
+	path := c.APIPath("/volumes/" + url.PathEscape(volumeID))
+	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, nil, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Service) DeleteVolume(ctx context.Context, volumeID string) error {
+	if strings.TrimSpace(volumeID) == "" {
+		return fmt.Errorf("sandbox: volumeID is required")
+	}
+
+	path := c.APIPath("/volumes/" + url.PathEscape(volumeID))
+	_, err := c.DoRequest(ctx, http.MethodDelete, path, nil, nil, nil, http.StatusNoContent)
+	return err
+}
+
+func (c *Service) ListTeams(ctx context.Context) ([]Team, error) {
+	var resp []Team
+	if _, err := c.DoJSON(ctx, http.MethodGet, c.APIPath("/teams"), nil, nil, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Service) GetTeamMetrics(ctx context.Context, teamID string, params *TeamMetricsParams) ([]TeamMetric, error) {
+	if strings.TrimSpace(teamID) == "" {
+		return nil, fmt.Errorf("sandbox: teamID is required")
+	}
+	var query url.Values
+	if params != nil {
+		query = params.encode()
+	}
+
+	var resp []TeamMetric
+	path := c.APIPath("/teams/" + url.PathEscape(teamID) + "/metrics")
+	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, query, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Service) GetTeamMetricsMax(ctx context.Context, teamID string, params *TeamMetricsMaxParams) (*MaxTeamMetric, error) {
+	if strings.TrimSpace(teamID) == "" {
+		return nil, fmt.Errorf("sandbox: teamID is required")
+	}
+	var query url.Values
+	if params != nil {
+		query = params.encode()
+	}
+
+	var resp MaxTeamMetric
+	path := c.APIPath("/teams/" + url.PathEscape(teamID) + "/metrics/max")
+	if _, err := c.DoJSON(ctx, http.MethodGet, path, nil, query, nil, &resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (c *Service) ListSandboxes(ctx context.Context, params *ListSandboxesParams) ([]ListedSandbox, error) {
+	page, err := c.ListSandboxesPage(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return page.Items, nil
+}
+
+func (c *Service) ListSandboxesPage(ctx context.Context, params *ListSandboxesParams) (*SandboxesPage, error) {
 	var query url.Values
 	if params != nil {
 		query = params.encode()
 	}
 
 	var resp []ListedSandbox
-	if _, err := c.DoJSON(ctx, http.MethodGet, c.APIPath("/sandboxes"), nil, query, nil, &resp, http.StatusOK); err != nil {
+	httpResp, err := c.DoJSON(ctx, http.MethodGet, c.APIPath("/sandboxes"), nil, query, nil, &resp, http.StatusOK)
+	if err != nil {
 		return nil, err
 	}
-	return resp, nil
+	return &SandboxesPage{
+		Items:     resp,
+		NextToken: httpResp.Header.Get("X-Next-Token"),
+		HasNext:   strings.EqualFold(httpResp.Header.Get("X-Has-Next"), "true"),
+	}, nil
 }
 
 func (c *Service) GetSandbox(ctx context.Context, sandboxID string) (*SandboxDetail, error) {
@@ -303,6 +536,48 @@ func (p *ListSandboxesParams) encode() url.Values {
 	return values
 }
 
+func (p *ListSandboxEventsParams) encode() url.Values {
+	values := make(url.Values)
+	if p.Offset > 0 {
+		values.Set("offset", strconv.Itoa(p.Offset))
+	}
+	if p.Limit > 0 {
+		values.Set("limit", strconv.Itoa(p.Limit))
+	}
+	if p.OrderAsc != nil {
+		values.Set("orderAsc", strconv.FormatBool(*p.OrderAsc))
+	}
+	for _, eventType := range p.Types {
+		if value := strings.TrimSpace(eventType); value != "" {
+			values.Add("types", value)
+		}
+	}
+	return values
+}
+
+func (p *ListWebhookDeliveriesParams) encode() url.Values {
+	values := make(url.Values)
+	if p.Offset > 0 {
+		values.Set("offset", strconv.Itoa(p.Offset))
+	}
+	if p.Limit > 0 {
+		values.Set("limit", strconv.Itoa(p.Limit))
+	}
+	if p.OrderAsc != nil {
+		values.Set("orderAsc", strconv.FormatBool(*p.OrderAsc))
+	}
+	if value := strings.TrimSpace(p.WebhookID); value != "" {
+		values.Set("webhookID", value)
+	}
+	if value := strings.TrimSpace(p.EventID); value != "" {
+		values.Set("eventID", value)
+	}
+	if value := strings.TrimSpace(p.Status); value != "" {
+		values.Set("status", value)
+	}
+	return values
+}
+
 func (p *SandboxMetricsParams) encode() url.Values {
 	values := make(url.Values)
 	ids := make([]string, 0, len(p.SandboxIDs))
@@ -316,6 +591,31 @@ func (p *SandboxMetricsParams) encode() url.Values {
 	}
 	if p.Limit > 0 {
 		values.Set("limit", strconv.Itoa(p.Limit))
+	}
+	return values
+}
+
+func (p *TeamMetricsParams) encode() url.Values {
+	values := make(url.Values)
+	if p.Start > 0 {
+		values.Set("start", strconv.FormatInt(p.Start, 10))
+	}
+	if p.End > 0 {
+		values.Set("end", strconv.FormatInt(p.End, 10))
+	}
+	return values
+}
+
+func (p *TeamMetricsMaxParams) encode() url.Values {
+	values := make(url.Values)
+	if value := strings.TrimSpace(p.Metric); value != "" {
+		values.Set("metric", value)
+	}
+	if p.Start > 0 {
+		values.Set("start", strconv.FormatInt(p.Start, 10))
+	}
+	if p.End > 0 {
+		values.Set("end", strconv.FormatInt(p.End, 10))
 	}
 	return values
 }

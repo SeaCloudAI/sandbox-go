@@ -71,13 +71,13 @@ func (g *gatewayServices) create(ctx context.Context, templateID string, opts *C
 		}
 		req.Timeout = opts.Timeout
 		req.AutoPause = opts.AutoPause
+		req.AutoResume = opts.AutoResume
+		req.AllowInternetAccess = opts.AllowInternetAccess
 		req.Metadata = opts.Metadata
 		req.EnvVars = opts.EnvVars
 		req.WaitReady = opts.WaitReady
 		req.Network = opts.Network
-	}
-	if strings.TrimSpace(req.TemplateID) == "" {
-		return nil, fmt.Errorf("sandbox: templateID is required")
+		req.VolumeMounts = opts.VolumeMounts
 	}
 	return g.createSandbox(ctx, req)
 }
