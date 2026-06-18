@@ -2,12 +2,15 @@ package tests
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/SeaCloudAI/sandbox-go"
 	"github.com/SeaCloudAI/sandbox-go/control"
+	"github.com/SeaCloudAI/sandbox-go/core"
 )
 
 func TestNewRuntimeInitializesBaseURL(t *testing.T) {
@@ -40,6 +43,38 @@ func TestPackageLevelHelpersUseSeaCloudGatewayEnv(t *testing.T) {
 	t.Setenv("SEACLOUD_API_KEY", "unit-auth-value")
 
 	paginator, err := sandbox.List(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	listed, err := paginator.NextPage(context.Background())
+	if err != nil {
+		t.Fatalf("NextPage: %v", err)
+	}
+	if len(listed) != 0 {
+		t.Fatalf("listed = %#v", listed)
+	}
+}
+
+func TestPackageLevelHelpersDefaultToProductionSandboxServiceAPI(t *testing.T) {
+	t.Setenv("SEACLOUD_BASE_URL", "")
+	t.Setenv("SEACLOUD_API_KEY", "unit-auth-value")
+
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if got := r.URL.String(); got != "https://sandbox-service.real-cloud.seaart.ai/api/v1/sandbox/sandboxes" {
+			t.Fatalf("url = %q", got)
+		}
+		if got := r.Header.Get("X-API-Key"); got != "unit-auth-value" {
+			t.Fatalf("api key = %q", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`[]`)),
+			Request:    r,
+		}, nil
+	})}
+
+	paginator, err := sandbox.List(context.Background(), nil, core.WithHTTPClient(httpClient))
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

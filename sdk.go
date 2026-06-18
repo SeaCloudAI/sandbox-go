@@ -23,6 +23,7 @@ type gatewayServices struct {
 const (
 	sandboxListLimitDefault = 100
 	sandboxListLimitMax     = 100
+	defaultGatewayBaseURL   = "https://sandbox-service.real-cloud.seaart.ai/api/v1/sandbox"
 )
 
 func newGatewayServices(baseURL, apiKey string, opts ...core.TransportOption) (*gatewayServices, error) {
@@ -206,6 +207,9 @@ func resolveGatewayConfig(baseURL, apiKey string) (string, string) {
 	resolvedBaseURL := strings.TrimSpace(baseURL)
 	if resolvedBaseURL == "" {
 		resolvedBaseURL = normalizeDomain(strings.TrimSpace(os.Getenv("SEACLOUD_BASE_URL")))
+	}
+	if resolvedBaseURL == "" {
+		resolvedBaseURL = defaultGatewayBaseURL
 	}
 
 	resolvedAPIKey := strings.TrimSpace(apiKey)
